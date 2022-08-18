@@ -1,0 +1,4 @@
+[
+    { "caption": "DimInactiveCode: Build Define Data…", "command": "build_define_database" },
+    { "caption": "DimInactiveCode: Calculate selected Define…", "command": "calc_value" },
+]

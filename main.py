@@ -1,4 +1,3 @@
-from glob import glob
 import sublime
 import sublime_plugin
 
@@ -7,6 +6,8 @@ import os
 import glob
 import os
 import re
+import html
+import threading
 
 # import functools
 from collections import namedtuple
@@ -25,19 +26,19 @@ REGEX_INCLUDE = r'#include\s+["<](?P<PATH>.+)[">]\s*'
 BIT = lambda n: 1 << n
 
 
+def convertall_dec2fmt(text, fmt="0x{:X}"):
+    re_sub_dec2hex = lambda m: "{}".format(fmt).format(int(m.group(1)))
+    return re.sub(r"\b([0-9]+)\b", re_sub_dec2hex, text)
+
+
+def glob_recursive(directory, ext=".c"):
+    return [os.path.join(root, filename)
+          for root, dirnames, filenames in os.walk(directory)
+          for filename in filenames if filename.endswith(ext)]
+
+
 class DuplicatedIncludeError(Exception):
     """assert when parser can not found ONE valid include header file."""
-
-
-def is_junction(path):
-    try:
-        return bool(os.readlink(path))
-    except OSError:
-        return False
-
-
-def get_junction_folder(path, root=""):
-    return None
 
 
 class Parser:
@@ -172,8 +173,8 @@ class Parser:
                         token = match_if.group("TOKEN")
                         if_token = (
                             "0"  # header guard always uses #ifndef *
-                            if ignore_header_guard and first_guard_token
-                            else self.expand_token(token, try_if_else, raise_key_error=False)
+                            if ignore_header_guard and first_guard_token and (match_if.group("NOT") == "n")
+                            else self.expand_token(token, try_if_else, raise_key_error=False, zero_undefined=True)
                         )
                         if_token_val = bool(self.try_eval_num(if_token))
                         if_true_bmp |= BIT(if_depth) * (
@@ -184,7 +185,7 @@ class Parser:
                         )
                     elif match_elif:
                         if_token = self.expand_token(
-                            match_elif.group("TOKEN"), try_if_else, raise_key_error=False
+                            match_elif.group("TOKEN"), try_if_else, raise_key_error=False, zero_undefined=True
                         )
                         if_token_val = bool(self.try_eval_num(if_token))
                         if_true_bmp |= BIT(if_depth) * if_token_val
@@ -242,24 +243,8 @@ class Parser:
     def read_folder_h(self, directory, try_if_else=True):
         self.folder = directory
 
-        # glob all header files that not located in junction (aka. Windows symlink)
-        header_files = []
-        #   glob files are sorted, so just cache previous found junction folder
-        prev_folder, junction = "", None
-        for f in glob.glob(os.path.join(directory, "**/*.h")):
-            if junction and f.startswith(junction):
-                # skip file inside junction
-                continue
-            _dir = os.path.dirname(f)
-            if (_dir) and _dir != prev_folder:
-                prev_folder = _dir
-                j = get_junction_folder(os.path.dirname(f), root=directory)
-                if j:
-                    junction = j
-                else:
-                    header_files.append(f)
-            else:
-                header_files.append(f)
+        header_files = glob_recursive(directory, ".h")
+        print('read_header cnt: ', len(header_files))
 
         header_done = set()
         pre_defined_keys = self.defs.keys()
@@ -310,7 +295,7 @@ class Parser:
 
         return True
 
-    def read_h(self, filepath, try_if_else=False):
+    def read_h(self, filepath, try_if_else=True):
         def insert_def(line, _):
             define = self._get_define(line)
             if define == None:
@@ -325,7 +310,7 @@ class Parser:
             print("Fail to open :{}. {}".format(filepath, e))
 
     @contextmanager
-    def read_c(self, filepath, try_if_else=False):
+    def read_c(self, filepath, try_if_else=True):
         """use `with` context manager for having temporary tokens defined in .c source file"""
 
         defs = {}
@@ -415,7 +400,7 @@ class Parser:
                 arguments = []
 
     # @functools.lru_cache
-    def expand_token(self, token, try_if_else=False, raise_key_error=True):
+    def expand_token(self, token, try_if_else=True, raise_key_error=True, zero_undefined=False):
         expanded_token = self.strip_token(token)
         self.iterate += 1
 
@@ -473,12 +458,12 @@ class Parser:
             token_val = self.try_eval_num(expanded_token)
             if token_val is not None:
                 expanded_token = str(token_val)
-        elif len(tokens) and expanded_token == name:
+        elif zero_undefined and len(tokens) and expanded_token == name:
             return "0"
 
         return expanded_token
 
-    def get_expand_defines(self, filepath, try_if_else=False, ignore_header_guard=True):
+    def get_expand_defines(self, filepath, try_if_else=True, ignore_header_guard=True):
         defines = []
 
         def expand_define(line, _):
@@ -505,7 +490,7 @@ class Parser:
         self.read_file_lines(filepath, expand_define, try_if_else, ignore_header_guard)
         return defines
 
-    def get_expand_define(self, macro_name, try_if_else=False):
+    def get_expand_define(self, macro_name, try_if_else=True):
         if macro_name not in self.defs:
             return None
 
@@ -513,9 +498,9 @@ class Parser:
         token = define.token
         expanded_token = self.expand_token(token, try_if_else, raise_key_error=False)
 
-        return DEFINE(name=macro_name, params=define, token=expanded_token, line=define.line)
+        return DEFINE(name=macro_name, params=define.params, token=expanded_token, line=define.line)
 
-    def get_preprocess_source(self, filepath, try_if_else=False):
+    def get_preprocess_source(self, filepath, try_if_else=True):
         lines = []
 
         def read_line(line, _):
@@ -529,29 +514,153 @@ class Parser:
 
 
 # class ExampleCommand(sublime_plugin.TextCommand):
-# 	def run(self, edit):
-# 		self.view.insert(edit, 0, "Hello, World!")
+#     def run(self, edit):
+#         self.view.insert(edit, 0, "Hello, World!")
 
 parser = {}
 
+def _get_folder(window):
+    if window is None:
+        return
+    folders = window.folders()
+    if len(folders) != 1:
+        print('Currently only support one folder in a Window.')
+        return None
+
+    return folders[0]
+
+
+def _init_parser(window):
+    active_folder = _get_folder(window)
+    if active_folder is None:
+        return None
+
+    print('init_parser', active_folder)
+    p = Parser()
+    parser[active_folder] = p
+
+    sublime.status_message("building define database, please wait...")
+
+    def async_proc():
+        p.read_folder_h(active_folder)
+        sublime.status_message("building define database done.")
+
+    sublime.set_timeout_async(async_proc , 0)
+
+
+def _get_parser(window):
+    active_folder = _get_folder(window)
+    if active_folder not in parser:
+        return None
+    return parser[active_folder]
+
+
 class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
-	def run(self):
-		window = self.window
+    def run(self):
+        active_folder = _get_folder(self.window)
+        if active_folder is None:
+            return
 
-		folders = window.folders()
-		if len(folders) != 1:
-			sublime.error_message('Currently only support one folder in a Window.')
-			return
-
-		active_folder = folders[0]
-
-		p = Parser()
-		p.read_folder_h(active_folder)
-
-		print(active_folder)
-		parser[active_folder] = p
+        _init_parser(self.window)
 
 
-class DimRegionListener(sublime_plugin.EventListener):
-	def on_modified_async(self, view):
-		print(view.style())
+class CalcValue(sublime_plugin.TextCommand):
+    def run(self, edit):
+        window = sublime.active_window()
+        view = window.active_view()
+
+        region = view.sel()[0]
+        if region.begin() == region.end():  # point
+            region = view.word(region)
+
+            # handle special line endings for Ruby
+            language = view.settings().get('syntax')
+            endings = view.substr(
+                sublime.Region(
+                    region.end(),
+                    region.end() + 1))
+
+            if 'Ruby' in language and self.endings.match(endings):
+                region = sublime.Region(region.begin(), region.end() + 1)
+        symbol = view.substr(region)
+
+        parser = _get_parser(window)
+        if parser is None:
+            _init_parser(window)
+            return
+
+        define = parser.get_expand_define(symbol)
+        if define is not None:
+            print(define)
+            value = parser.try_eval_num(define.token)
+            if value is not None:
+                text = "{} ({})".format(value, hex(value))
+            else:
+                text = html.escape(convertall_dec2fmt(define.token))
+
+            view.show_popup('<em>Expansion of</em> <small>{}{}</small><br>{}'.format(
+                define.name,
+                "(%s)" % (", ".join(define.params)) if define.params is not None else "",
+                text,
+            ), max_width=800)
+        else:
+            expanded_token = parser.expand_token(symbol)
+            view.show_popup('<em>Expansion of</em> <small>{}</small><br>{}'.format(
+                html.escape(symbol),
+                html.escape(convertall_dec2fmt(expanded_token, "0x{:02X}")),
+            ), max_width=800)
+
+
+class EvtListener(sublime_plugin.EventListener):
+    def on_new_window_async(self, window):
+        active_folder = _get_folder(window)
+        if active_folder is None:
+            return
+        _init_parser(window)
+
+    def on_load_async(self, view):
+        print('load', view.file_name())
+        window = view.window()
+        p = _get_parser(window)
+        if p is None:
+            _init_parser(window)
+
+    def on_reload(self, view):
+        print('reload', view.file_name())
+
+    def on_activated_async(self, view):
+        print('activate', view.file_name())
+        self._dim_inavtive_code(view)
+
+    def _dim_inavtive_code(self, view):
+        window = view.window()
+        p = _get_parser(window)
+        if p is None:
+            return
+        filename = view.file_name()
+        _, ext = os.path.splitext(filename)
+        if ext not in {'.c', '.h', 'cpp'}:
+            return
+
+        num_lines = sum(1 for line in open(filename))
+        inactive_lines = set(range(1, 1 + num_lines))
+        def mark_inactive(line, lineno):
+            inactive_lines.remove(lineno)
+
+        p.read_file_lines(filename, mark_inactive, ignore_header_guard=True)
+        print("  inactive lines count: ", len(inactive_lines))
+
+        regions = [
+            sublime.Region(view.text_point(line-1, 0), view.text_point(line, 0))
+            for line in inactive_lines
+        ]
+        view.add_regions('dimmed_source_code', regions, scope="source.c comment.block.c")
+
+
+class VwListener(sublime_plugin.ViewEventListener):
+    def on_load_async(self):
+        window = sublime.active_window()
+        p = _get_parser(window)
+        if p is None:
+            _init_parser(window)
+
