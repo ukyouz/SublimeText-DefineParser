@@ -200,6 +200,8 @@ class Parser:
 
                 multi_lines += re.sub(regex_line_break, "", line)
                 if re.search(regex_line_break, line):
+                    if reserve_whitespace:
+                        func(line, line_no)
                     continue
                 single_line = re.sub(regex_line_break, "", multi_lines)
                 if if_true_bmp == BIT(if_depth + 1) - 1:
@@ -647,14 +649,14 @@ class EvtListener(sublime_plugin.EventListener):
         def mark_inactive(line, lineno):
             inactive_lines.remove(lineno)
 
-        p.read_file_lines(filename, mark_inactive, ignore_header_guard=True)
+        p.read_file_lines(filename, mark_inactive, reserve_whitespace=True, ignore_header_guard=True)
         print("  inactive lines count: ", len(inactive_lines))
 
         regions = [
             sublime.Region(view.text_point(line-1, 0), view.text_point(line, 0))
             for line in inactive_lines
         ]
-        view.add_regions('dimmed_source_code', regions, scope="source.c comment.block.c")
+        view.add_regions('dimmed_source_code', regions, scope="comment.block", flags=sublime.DRAW_NO_OUTLINE)
 
 
 class VwListener(sublime_plugin.ViewEventListener):
