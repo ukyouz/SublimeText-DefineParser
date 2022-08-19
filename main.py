@@ -1,19 +1,16 @@
-import sublime
-import sublime_plugin
-
-import os
-
 import glob
-import os
-import re
 import html
-import threading
+import os
 import pickle
-
+import re
+import threading
 # import functools
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
 from pprint import pformat, pprint
+
+import sublime
+import sublime_plugin
 
 DEFINE = namedtuple("DEFINE", ("name", "params", "token", "line"))
 TOKEN = namedtuple("DEFINE", ("name", "params", "line"))
@@ -559,6 +556,17 @@ class Parser:
 CACHE_OBJ_FILE = os.path.join(sublime.cache_path(), "DimInavtiveCode.db")
 PARSERS = {}
 
+REGION_INACTIVE = "inactive_source_code"
+
+DP_SETTING_HL_INACTIVE = "define_parser_highlight_inactive"
+
+
+def plugin_loaded():
+    if os.path.exists(CACHE_OBJ_FILE):
+        global PARSERS
+        with open(CACHE_OBJ_FILE, "rb") as fs:
+            PARSERS = pickle.load(fs)
+
 
 def _get_folder(window):
     if window is None:
@@ -598,6 +606,46 @@ def _get_parser(window):
     return PARSERS[active_folder]
 
 
+def _mark_inactive_code(view):
+    window = view.window()
+    p = _get_parser(window)
+    filename = view.file_name()
+    if p is None or filename is None:
+        return
+
+    _, ext = os.path.splitext(filename)
+    if ext not in {".c", ".h", ".cpp"}:
+        return
+
+    num_lines = sum(1 for line in open(filename))
+    inactive_lines = set(range(1, 1 + num_lines))
+
+    def mark_inactive(line, lineno):
+        inactive_lines.remove(lineno)
+
+    p.read_file_lines(
+        filename, mark_inactive, reserve_whitespace=True, ignore_header_guard=True
+    )
+    print("  inactive lines count: ", len(inactive_lines))
+
+    regions = [
+        sublime.Region(view.text_point(line - 1, 0), view.text_point(line, 0))
+        for line in inactive_lines
+    ]
+    view.add_regions(
+        REGION_INACTIVE,
+        regions,
+        scope="comment.block",
+        flags=sublime.DRAW_NO_OUTLINE,
+    )
+
+
+def _unmark_inactive_code(view):
+    print("unmark ", view.file_name())
+    view.erase_regions(REGION_INACTIVE)
+    view.settings().set(DP_SETTING_HL_INACTIVE, False)
+
+
 class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
     def run(self):
         active_folder = _get_folder(self.window)
@@ -605,6 +653,17 @@ class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
             return
 
         _init_parser(self.window)
+
+
+class ToggleMarkInactiveCode(sublime_plugin.WindowCommand):
+    def run(self):
+        view = self.window.active_view()
+        has_mark = view.settings().get(DP_SETTING_HL_INACTIVE)
+        if has_mark:
+            _unmark_inactive_code(view)
+        else:
+            _mark_inactive_code(view)
+        view.settings().set(DP_SETTING_HL_INACTIVE, not has_mark)
 
 
 class ShowAllDefineCommand(sublime_plugin.WindowCommand):
@@ -699,40 +758,11 @@ class EvtListener(sublime_plugin.EventListener):
 
     def on_activated_async(self, view):
         print("activate", view.file_name())
-        self._dim_inavtive_code(view)
-
-    def _dim_inavtive_code(self, view):
-        window = view.window()
-        p = _get_parser(window)
-        filename = view.file_name()
-        if p is None or filename is None:
-            return
-
-        _, ext = os.path.splitext(filename)
-        if ext not in {".c", ".h", ".cpp"}:
-            return
-
-        num_lines = sum(1 for line in open(filename))
-        inactive_lines = set(range(1, 1 + num_lines))
-
-        def mark_inactive(line, lineno):
-            inactive_lines.remove(lineno)
-
-        p.read_file_lines(
-            filename, mark_inactive, reserve_whitespace=True, ignore_header_guard=True
-        )
-        print("  inactive lines count: ", len(inactive_lines))
-
-        regions = [
-            sublime.Region(view.text_point(line - 1, 0), view.text_point(line, 0))
-            for line in inactive_lines
-        ]
-        view.add_regions(
-            "dimmed_source_code",
-            regions,
-            scope="comment.block",
-            flags=sublime.DRAW_NO_OUTLINE,
-        )
+        shall_mark = view.settings().get(DP_SETTING_HL_INACTIVE)
+        if shall_mark:
+            _mark_inactive_code(view)
+        else:
+            _unmark_inactive_code(view)
 
 
 class VwListener(sublime_plugin.ViewEventListener):
@@ -741,10 +771,3 @@ class VwListener(sublime_plugin.ViewEventListener):
         p = _get_parser(window)
         if p is None:
             _init_parser(window)
-
-
-def plugin_loaded():
-    if os.path.exists(CACHE_OBJ_FILE):
-        global parser
-        with open(CACHE_OBJ_FILE, "rb") as fs:
-            parser = pickle.load(fs)
