@@ -8,9 +8,10 @@ import os
 import re
 import html
 import threading
+import pickle
 
 # import functools
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 from contextlib import contextmanager
 from pprint import pformat, pprint
 
@@ -19,7 +20,9 @@ TOKEN = namedtuple("DEFINE", ("name", "params", "line"))
 
 REGEX_TOKEN = r"\b(?P<NAME>[a-zA-Z_][a-zA-Z0-9_]+)\b"
 REGEX_DEFINE = (
-    r"#define\s+" + REGEX_TOKEN + r"(?P<HAS_PAREN>\((?P<PARAMS>[\w, ]*)\))*\s*(?P<TOKEN>.+)*"
+    r"#define\s+"
+    + REGEX_TOKEN
+    + r"(?P<HAS_PAREN>\((?P<PARAMS>[\w, ]*)\))*\s*(?P<TOKEN>.+)*"
 )
 REGEX_UNDEF = r"#undef\s+" + REGEX_TOKEN
 REGEX_INCLUDE = r'#include\s+["<](?P<PATH>.+)[">]\s*'
@@ -32,9 +35,12 @@ def convertall_dec2fmt(text, fmt="0x{:X}"):
 
 
 def glob_recursive(directory, ext=".c"):
-    return [os.path.join(root, filename)
-          for root, dirnames, filenames in os.walk(directory)
-          for filename in filenames if filename.endswith(ext)]
+    return [
+        os.path.join(root, filename)
+        for root, dirnames, filenames in os.walk(directory)
+        for filename in filenames
+        if filename.endswith(ext)
+    ]
 
 
 class DuplicatedIncludeError(Exception):
@@ -49,7 +55,7 @@ class Parser:
         self.reset()
 
     def reset(self):
-        self.defs = {}  # dict of DEFINE
+        self.defs = OrderedDict()  # dict of DEFINE
         self.folder = ""
 
     def _debug_log(self, msg, *args):
@@ -105,12 +111,16 @@ class Parser:
             # limitation:
             #   for equation like (U32)1 << (U32)(15) may be calculated to wrong value
             #   due to operator order
-            data_sz = 2**sz_log2
+            data_sz = 2 ** sz_log2
             # sizeof(U16) -> 2
-            token = re.sub(r"sizeof\(\s*{}\s*\)".format(special_type), str(data_sz), token)
+            token = re.sub(
+                r"sizeof\(\s*{}\s*\)".format(special_type), str(data_sz), token
+            )
             # (U16)x -> 0xFFFF & x
             token = re.sub(
-                r"\(\s*{}\s*\)".format(special_type), "0x" + "F" * data_sz * 2 + " & ", token
+                r"\(\s*{}\s*\)".format(special_type),
+                "0x" + "F" * data_sz * 2 + " & ",
+                token,
             )
         try:
             # syntax translation from C -> Python
@@ -173,8 +183,15 @@ class Parser:
                         token = match_if.group("TOKEN")
                         if_token = (
                             "0"  # header guard always uses #ifndef *
-                            if ignore_header_guard and first_guard_token and (match_if.group("NOT") == "n")
-                            else self.expand_token(token, try_if_else, raise_key_error=False, zero_undefined=True)
+                            if ignore_header_guard
+                            and first_guard_token
+                            and (match_if.group("NOT") == "n")
+                            else self.expand_token(
+                                token,
+                                try_if_else,
+                                raise_key_error=False,
+                                zero_undefined=True,
+                            )
                         )
                         if_token_val = bool(self.try_eval_num(if_token))
                         if_true_bmp |= BIT(if_depth) * (
@@ -185,7 +202,10 @@ class Parser:
                         )
                     elif match_elif:
                         if_token = self.expand_token(
-                            match_elif.group("TOKEN"), try_if_else, raise_key_error=False, zero_undefined=True
+                            match_elif.group("TOKEN"),
+                            try_if_else,
+                            raise_key_error=False,
+                            zero_undefined=True,
                         )
                         if_token_val = bool(self.try_eval_num(if_token))
                         if_true_bmp |= BIT(if_depth) * if_token_val
@@ -207,7 +227,9 @@ class Parser:
                 if if_true_bmp == BIT(if_depth + 1) - 1:
                     func(single_line, line_no)
                     if_done_bmp |= BIT(if_depth)
-                elif try_if_else and (match_if or match_elif or match_else or match_endif):
+                elif try_if_else and (
+                    match_if or match_elif or match_else or match_endif
+                ):
                     func(single_line, line_no)
                 multi_lines = ""
 
@@ -246,7 +268,7 @@ class Parser:
         self.folder = directory
 
         header_files = glob_recursive(directory, ".h")
-        print('read_header cnt: ', len(header_files))
+        print("read_header cnt: ", len(header_files))
 
         header_done = set()
         pre_defined_keys = self.defs.keys()
@@ -260,10 +282,14 @@ class Parser:
                 if path in h and os.path.basename(path) == os.path.basename(h)
             ]
             if len(included_files) > 1:
-                included_files = [f for f in included_files if f.replace(path, "") in src_file]
+                included_files = [
+                    f for f in included_files if f.replace(path, "") in src_file
+                ]
 
             if len(included_files) > 1:
-                raise DuplicatedIncludeError(pformat(included_files, indent=4, width=120))
+                raise DuplicatedIncludeError(
+                    pformat(included_files, indent=4, width=120)
+                )
 
             return included_files[0] if len(included_files) else None
 
@@ -373,7 +399,9 @@ class Parser:
                     if params_required is not None:
                         params = fine_token_params(token[end_pos:])
                 param_str = params if params else ""
-                ret_tokens.append(TOKEN(name=_token, params=params, line=_token + param_str))
+                ret_tokens.append(
+                    TOKEN(name=_token, params=params, line=_token + param_str)
+                )
             return ret_tokens
         else:
             return []
@@ -402,7 +430,9 @@ class Parser:
                 arguments = []
 
     # @functools.lru_cache
-    def expand_token(self, token, try_if_else=True, raise_key_error=True, zero_undefined=False):
+    def expand_token(
+        self, token, try_if_else=True, raise_key_error=True, zero_undefined=False
+    ):
         expanded_token = self.strip_token(token)
         self.iterate += 1
 
@@ -448,7 +478,9 @@ class Parser:
                 #     expanded_token = expanded_token.replace(_token.line, '(0)')
             elif name is not expanded_token:
                 params = self.expand_token(_token.line, try_if_else, raise_key_error)
-                expanded_token = re.sub(word_boundary(_token.line), params, expanded_token)
+                expanded_token = re.sub(
+                    word_boundary(_token.line), params, expanded_token
+                )
                 # expanded_token = expanded_token.replace(match.group(0), self.expand_token(match.group(0)))
 
         if expanded_token in self.defs:
@@ -500,7 +532,12 @@ class Parser:
         token = define.token
         expanded_token = self.expand_token(token, try_if_else, raise_key_error=False)
 
-        return DEFINE(name=macro_name, params=define.params, token=expanded_token, line=define.line)
+        return DEFINE(
+            name=macro_name,
+            params=define.params,
+            token=expanded_token,
+            line=define.line,
+        )
 
     def get_preprocess_source(self, filepath, try_if_else=True):
         lines = []
@@ -510,23 +547,25 @@ class Parser:
 
         ignore_header_guard = os.path.splitext(filepath)[1] == ".h"
         self.read_file_lines(
-            filepath, read_line, try_if_else, ignore_header_guard, reserve_whitespace=True
+            filepath,
+            read_line,
+            try_if_else,
+            ignore_header_guard,
+            reserve_whitespace=True,
         )
         return lines
 
 
-# class ExampleCommand(sublime_plugin.TextCommand):
-#     def run(self, edit):
-#         self.view.insert(edit, 0, "Hello, World!")
+CACHE_OBJ_FILE = os.path.join(sublime.cache_path(), "DimInavtiveCode.db")
+PARSERS = {}
 
-parser = {}
 
 def _get_folder(window):
     if window is None:
         return
     folders = window.folders()
     if len(folders) != 1:
-        print('Currently only support one folder in a Window.')
+        print("Currently only support one folder in a Window.")
         return None
 
     return folders[0]
@@ -537,24 +576,26 @@ def _init_parser(window):
     if active_folder is None:
         return None
 
-    print('init_parser', active_folder)
+    print("init_parser", active_folder)
     p = Parser()
-    parser[active_folder] = p
+    PARSERS[active_folder] = p
 
     sublime.status_message("building define database, please wait...")
 
     def async_proc():
         p.read_folder_h(active_folder)
         sublime.status_message("building define database done.")
+        with open(CACHE_OBJ_FILE, "wb") as fs:
+            pickle.dump(PARSERS, fs)
 
-    sublime.set_timeout_async(async_proc , 0)
+    sublime.set_timeout_async(async_proc, 0)
 
 
 def _get_parser(window):
     active_folder = _get_folder(window)
-    if active_folder not in parser:
+    if active_folder not in PARSERS:
         return None
-    return parser[active_folder]
+    return PARSERS[active_folder]
 
 
 class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
@@ -566,30 +607,48 @@ class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
         _init_parser(self.window)
 
 
+class ShowAllDefineCommand(sublime_plugin.WindowCommand):
+    def run(self):
+        folder = _get_folder(self.window)
+        parser = _get_parser(self.window)
+        if folder is None or parser is None:
+            return
+        new_view = self.window.new_file(sublime.TRANSIENT)
+        new_view.set_name("Define Value - " + folder)
+        new_view.set_syntax_file("Packages/C++/C.sublime-syntax")
+        texts = []
+        for define in parser.defs.values():
+            token = define.token
+            token_value = parser.try_eval_num(token)
+            if token_value is not None:
+                line = "#define %-30s (0x%x)" % (define.name, token_value)
+            else:
+                line = "#define %-30s (%s)" % (define.name, token)
+            texts.append(line)
+        new_view.run_command("insert", {"characters": "\n".join(texts)})
+
+
 class CalcValue(sublime_plugin.TextCommand):
     def run(self, edit):
         window = sublime.active_window()
         view = window.active_view()
+
+        parser = _get_parser(window)
+        if parser is None:
+            _init_parser(window)
+            return
 
         region = view.sel()[0]
         if region.begin() == region.end():  # point
             region = view.word(region)
 
             # handle special line endings for Ruby
-            language = view.settings().get('syntax')
-            endings = view.substr(
-                sublime.Region(
-                    region.end(),
-                    region.end() + 1))
+            language = view.settings().get("syntax")
+            endings = view.substr(sublime.Region(region.end(), region.end() + 1))
 
-            if 'Ruby' in language and self.endings.match(endings):
+            if "Ruby" in language and self.endings.match(endings):
                 region = sublime.Region(region.begin(), region.end() + 1)
         symbol = view.substr(region)
-
-        parser = _get_parser(window)
-        if parser is None:
-            _init_parser(window)
-            return
 
         define = parser.get_expand_define(symbol)
         if define is not None:
@@ -600,17 +659,25 @@ class CalcValue(sublime_plugin.TextCommand):
             else:
                 text = html.escape(convertall_dec2fmt(define.token))
 
-            view.show_popup('<em>Expansion of</em> <small>{}{}</small><br>{}'.format(
-                define.name,
-                "(%s)" % (", ".join(define.params)) if define.params is not None else "",
-                text,
-            ), max_width=800)
+            view.show_popup(
+                "<em>Expansion of</em> <small>{}{}</small><br>{}".format(
+                    define.name,
+                    "(%s)" % (", ".join(define.params))
+                    if define.params is not None
+                    else "",
+                    text,
+                ),
+                max_width=800,
+            )
         else:
             expanded_token = parser.expand_token(symbol)
-            view.show_popup('<em>Expansion of</em> <small>{}</small><br>{}'.format(
-                html.escape(symbol),
-                html.escape(convertall_dec2fmt(expanded_token, "0x{:02X}")),
-            ), max_width=800)
+            view.show_popup(
+                "<em>Expansion of</em> <small>{}</small><br>{}".format(
+                    html.escape(symbol),
+                    html.escape(convertall_dec2fmt(expanded_token, "0x{:02X}")),
+                ),
+                max_width=800,
+            )
 
 
 class EvtListener(sublime_plugin.EventListener):
@@ -621,42 +688,51 @@ class EvtListener(sublime_plugin.EventListener):
         _init_parser(window)
 
     def on_load_async(self, view):
-        print('load', view.file_name())
+        print("load", view.file_name())
         window = view.window()
         p = _get_parser(window)
         if p is None:
             _init_parser(window)
 
-    def on_reload(self, view):
-        print('reload', view.file_name())
+    # def on_reload(self, view):
+    #     print("reload", view.file_name())
 
     def on_activated_async(self, view):
-        print('activate', view.file_name())
+        print("activate", view.file_name())
         self._dim_inavtive_code(view)
 
     def _dim_inavtive_code(self, view):
         window = view.window()
         p = _get_parser(window)
-        if p is None:
-            return
         filename = view.file_name()
+        if p is None or filename is None:
+            return
+
         _, ext = os.path.splitext(filename)
-        if ext not in {'.c', '.h', 'cpp'}:
+        if ext not in {".c", ".h", ".cpp"}:
             return
 
         num_lines = sum(1 for line in open(filename))
         inactive_lines = set(range(1, 1 + num_lines))
+
         def mark_inactive(line, lineno):
             inactive_lines.remove(lineno)
 
-        p.read_file_lines(filename, mark_inactive, reserve_whitespace=True, ignore_header_guard=True)
+        p.read_file_lines(
+            filename, mark_inactive, reserve_whitespace=True, ignore_header_guard=True
+        )
         print("  inactive lines count: ", len(inactive_lines))
 
         regions = [
-            sublime.Region(view.text_point(line-1, 0), view.text_point(line, 0))
+            sublime.Region(view.text_point(line - 1, 0), view.text_point(line, 0))
             for line in inactive_lines
         ]
-        view.add_regions('dimmed_source_code', regions, scope="comment.block", flags=sublime.DRAW_NO_OUTLINE)
+        view.add_regions(
+            "dimmed_source_code",
+            regions,
+            scope="comment.block",
+            flags=sublime.DRAW_NO_OUTLINE,
+        )
 
 
 class VwListener(sublime_plugin.ViewEventListener):
@@ -666,3 +742,9 @@ class VwListener(sublime_plugin.ViewEventListener):
         if p is None:
             _init_parser(window)
 
+
+def plugin_loaded():
+    if os.path.exists(CACHE_OBJ_FILE):
+        global parser
+        with open(CACHE_OBJ_FILE, "rb") as fs:
+            parser = pickle.load(fs)

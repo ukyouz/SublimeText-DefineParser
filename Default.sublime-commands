@@ -1,4 +1,5 @@
 [
-    { "caption": "DimInactiveCode: Build Define Data…", "command": "build_define_database" },
-    { "caption": "DimInactiveCode: Calculate selected Define…", "command": "calc_value" },
+    { "caption": "Define Parser: Build #define Data", "command": "build_define_database" },
+    { "caption": "Define Parser: Calculate selected #define", "command": "calc_value" },
+    { "caption": "Define Parser: Show all #define values", "command": "show_all_define" },
 ]
