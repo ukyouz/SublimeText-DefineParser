@@ -612,7 +612,7 @@ def _init_parser(window):
         PARSER_IS_BUILDING.remove(active_folder)
         p.read_folder_h(active_folder)
         sublime.status_message("building define database done.")
-        if window.settings().get(DP_SETTING_HL_INACTIVE):
+        if window.settings().get(DP_SETTING_HL_INACTIVE, True):
             _mark_inactive_code(window.active_view())
         with open(CACHE_OBJ_FILE, "wb") as fs:
             pickle.dump(PARSERS, fs)
@@ -721,7 +721,7 @@ class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
 class ToggleMarkInactiveCode(sublime_plugin.WindowCommand):
     def run(self):
         view = self.window.active_view()
-        has_mark = self.window.settings().get(DP_SETTING_HL_INACTIVE)
+        has_mark = self.window.settings().get(DP_SETTING_HL_INACTIVE, True)
         if has_mark:
             _unmark_inactive_code(view)
         else:
@@ -884,7 +884,7 @@ class EvtListener(sublime_plugin.EventListener):
         if window is None:
             return
 
-        if window.settings().get(DP_SETTING_HL_INACTIVE):
+        if window.settings().get(DP_SETTING_HL_INACTIVE, True):
             _mark_inactive_code(view)
         else:
             _unmark_inactive_code(view)
