@@ -775,25 +775,38 @@ class SelectConfiguration(sublime_plugin.WindowCommand):
             _unmark_inactive_code(view)
 
 
+class AppendDefine(sublime_plugin.TextCommand):
+    def run(self, edit, text):
+        self.view.insert(edit, self.view.size(), text)
+
+
 class ShowAllDefineCommand(sublime_plugin.WindowCommand):
     def run(self):
         folder = _get_folder(self.window)
         parser = _get_parser(self.window)
         if folder is None or parser is None:
             return
+        if len(parser.defs) == 0:
+            sublime.error_message("No #define found in " + folder)
+            return
         new_view = self.window.new_file(sublime.TRANSIENT)
         new_view.set_name("Define Value - " + folder)
         new_view.set_syntax_file("Packages/C++/C.sublime-syntax")
-        texts = []
-        for define in parser.defs.values():
-            token = define.token
-            token_value = parser.try_eval_num(token)
-            if token_value is not None:
-                line = "#define %-30s (0x%x)" % (define.name, token_value)
-            else:
-                line = "#define %-30s (%s)" % (define.name, token)
-            texts.append(line)
-        new_view.run_command("insert", {"characters": "\n".join(texts)})
+        # texts = []
+
+        def insert_defs():
+            for define in parser.defs.values():
+                token = define.token
+                token_value = parser.try_eval_num(token)
+                if token_value is not None:
+                    line = "#define %-30s (0x%x)" % (define.name, token_value)
+                else:
+                    line = "#define %-30s (%s)" % (define.name, token)
+                new_view.run_command("append_define", {"text": line + "\n"})
+            sublime.status_message("%d defines found!" % len(parser.defs))
+
+        sublime.set_timeout_async(insert_defs, 0)
+        # new_view.run_command("insert", {"characters": "\n".join(texts)})
 
 
 class CalcValue(sublime_plugin.TextCommand):
