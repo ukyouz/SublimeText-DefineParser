@@ -1,0 +1,10 @@
+// Place your settings in the file "User/DefineParser.sublime-settings", which
+// overrides the settings in here.
+{
+    // default enable highlight inactive code region
+    "highlight_inactive_enable": true,
+
+    // specify the extension list for inactive code region highlighting
+    // separate by comma
+    "highlight_inactive_extensions": ".h,.c,.cpp",
+}

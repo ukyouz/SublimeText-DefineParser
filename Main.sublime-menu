@@ -1,0 +1,73 @@
+[
+    {
+        "id": "find",
+        "children":
+        [
+          { "caption": "-" },
+          {
+            "caption": "Define Parser",
+            "id": "ctags",
+            "children":
+            [
+              {
+                "command": "build_define_database"
+              },
+              {
+                "command": "calculate_define_value"
+              },
+              {
+                "caption": "Show Defines (all)",
+                "command": "show_all_defines",
+              }
+            ]
+          }
+        ]
+    },
+    {
+        "caption": "Preferences",
+        "mnemonic": "n",
+        "id": "preferences",
+        "children":
+        [
+            {
+                "caption": "Package Settings",
+                "mnemonic": "P",
+                "id": "package-settings",
+                "children":
+                [
+                    {
+                        "caption": "Define Parser",
+                        "children":
+                        [
+                            {
+                                "command": "select_configuration",
+                            },
+                            { "caption": "-" },
+                            {
+                                "command": "open_file", "args":
+                                {
+                                    "file": "${packages}/DefineParser/DefineParser.sublime-settings"
+                                },
+                                "caption": "Settings"
+                            },
+                            {
+                                "command": "open_file",
+                                "args": {
+                                    "file": "${packages}/DefineParser/Default.sublime-keymap"
+                                },
+                                "caption": "Key Bindings"
+                            },
+                            {
+                                "command": "open_file",
+                                "args": {
+                                    "file": "${packages}/DefineParser/Default.sublime-mousemap"
+                                },
+                                "caption": "Mouse Bindings"
+                            },
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]
