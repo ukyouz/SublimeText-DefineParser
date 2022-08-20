@@ -169,7 +169,7 @@ def _unmark_inactive_code(view):
 def _get_config_list(window):
     folder = _get_folder(window)
     if folder is None:
-        return None
+        return []
 
     config_path = os.path.join(folder, PREDEFINE_FOLDER)
     if os.path.exists(config_path):
@@ -224,10 +224,56 @@ class ToggleMarkInactiveCode(sublime_plugin.WindowCommand):
         _set_setting(self.window, DP_SETTING_HL_INACTIVE, not has_mark)
 
 
+def _get_config_selection_items(window):
+    folder = _get_folder(window)
+    if folder is None:
+        return
+    config_list = _get_config_list(window)
+    config_path = os.path.join(folder, PREDEFINE_FOLDER)
+
+    items = []
+    selected_config = _get_setting(window, DP_SETTING_COMPILE_FILE)
+    logger.info("current config: %s", selected_config)
+    selected_index = -1
+    for index, filename in enumerate(config_list):
+        selected = filename == selected_config
+
+        with open(filename) as fs:
+            compile_flags = " ".join(fs.readlines())
+            item = sublime.QuickPanelItem(os.path.relpath(filename, config_path))
+            item.details = compile_flags
+            item.kind = (
+                (sublime.KIND_ID_COLOR_GREENISH, "✓", "") if selected else (0, "", "")
+            )
+            items.append(item)
+
+        if selected:
+            selected_index = index
+
+    return items, selected_index
+
+
 def _creat_new_compiler_flag_file(window, filename):
     with open(filename, "w") as fs:
         fs.write("-DTEST=1\n-DPLATFORM=WIN\n")
     window.open_file(filename)
+
+
+class EditConfiguration(sublime_plugin.WindowCommand):
+    def run(self):
+        items, selected_index = _get_config_selection_items(self.window)
+        if len(items) == 0:
+            return
+        self.window.show_quick_panel(
+            items,
+            on_select=self._on_select,
+            selected_index=selected_index,
+        )
+
+    def _on_select(self, selected_index):
+        config_list = _get_config_list(self.window)
+        config_file = config_list[selected_index]
+        self.window.open_file(config_file)
 
 
 class SelectConfiguration(sublime_plugin.WindowCommand):
@@ -251,27 +297,7 @@ class SelectConfiguration(sublime_plugin.WindowCommand):
             )
             return
 
-        items = []
-        selected_config = _get_setting(self.window, DP_SETTING_COMPILE_FILE)
-        logger.info("current config: %s", selected_config)
-        selected_index = -1
-        for index, filename in enumerate(config_list):
-            selected = filename == selected_config
-
-            with open(filename) as fs:
-                compile_flags = " ".join(fs.readlines())
-                item = sublime.QuickPanelItem(os.path.relpath(filename, config_path))
-                item.details = compile_flags
-                item.kind = (
-                    (sublime.KIND_ID_COLOR_GREENISH, "✓", "")
-                    if selected
-                    else (0, "", "")
-                )
-                items.append(item)
-
-            if selected:
-                selected_index = index
-
+        items, selected_index = _get_config_selection_items(self.window)
         item = sublime.QuickPanelItem("Default (without compiler flags)")
         item.kind = (
             (sublime.KIND_ID_COLOR_GREENISH, "✓", "")
@@ -281,7 +307,9 @@ class SelectConfiguration(sublime_plugin.WindowCommand):
         items.append(item)
 
         self.window.show_quick_panel(
-            items, on_select=self._on_select, selected_index=selected_index
+            items,
+            on_select=self._on_select,
+            selected_index=selected_index,
         )
 
     def _on_select(self, selected_index):

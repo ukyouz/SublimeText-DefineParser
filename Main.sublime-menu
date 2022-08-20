@@ -42,6 +42,9 @@
                             {
                                 "command": "select_configuration",
                             },
+                            {
+                                "command": "edit_configuration",
+                            },
                             { "caption": "-" },
                             {
                                 "command": "open_file", "args":
