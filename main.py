@@ -1,9 +1,11 @@
 import glob
 import html
+import io
 import os
 import pickle
 import re
 import threading
+
 # import functools
 from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
@@ -67,6 +69,7 @@ class Parser:
             name=name,
             params=new_params,
             token=new_token,
+            line="",
         )
 
     def remove_define(self, name):
@@ -130,7 +133,7 @@ class Parser:
 
     def read_file_lines(
         self,
-        filepath,
+        fileio,
         func,
         try_if_else=True,
         ignore_header_guard=False,
@@ -144,91 +147,89 @@ class Parser:
         if_done_bmp = 1  # bitmap for every #if statement
         first_guard_token = True
         is_block_comment = False
-        with open(filepath, "r", errors="replace") as fs:
-            multi_lines = ""
-            for line_no, line in enumerate(fs.readlines(), 1):
+        # with open(filepath, "r", errors="replace") as fs:
+        multi_lines = ""
+        for line_no, line in enumerate(fileio.readlines(), 1):
 
-                if not is_block_comment:
-                    if "/*" in line:  # start of block comment
-                        block_comment_start = line.index("/*")
-                        is_block_comment = "*/" not in line
-                        block_comment_ending = (
-                            line.index("*/") + 2 if not is_block_comment else len(line)
-                        )
-                        line = line[:block_comment_start] + line[block_comment_ending:]
-                        if is_block_comment:
-                            multi_lines += line
+            if not is_block_comment:
+                if "/*" in line:  # start of block comment
+                    block_comment_start = line.index("/*")
+                    is_block_comment = "*/" not in line
+                    block_comment_ending = (
+                        line.index("*/") + 2 if not is_block_comment else len(line)
+                    )
+                    line = line[:block_comment_start] + line[block_comment_ending:]
+                    if is_block_comment:
+                        multi_lines += line
 
-                if is_block_comment:
-                    if "*/" in line:  # end of block comment
-                        line = line[line.index("*/") + 2 :]
-                        is_block_comment = False
-                    else:
-                        continue
+            if is_block_comment:
+                if "*/" in line:  # end of block comment
+                    line = line[line.index("*/") + 2 :]
+                    is_block_comment = False
+                else:
+                    continue
 
-                line = re.sub(
-                    regex_line_comment, "", self.strip_token(line, reserve_whitespace)
-                )
+            line = re.sub(
+                regex_line_comment, "", self.strip_token(line, reserve_whitespace)
+            )
 
-                if try_if_else:
-                    match_if = re.match(r"#if((?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line)
-                    match_elif = re.match(r"#elif\s*(?P<TOKEN>.+)", line)
-                    match_else = re.match(r"#else.*", line)
-                    match_endif = re.match(r"#endif.*", line)
-                    if match_if:
-                        if_depth += 1
-                        token = match_if.group("TOKEN")
-                        if_token = (
-                            "0"  # header guard always uses #ifndef *
-                            if ignore_header_guard
-                            and first_guard_token
-                            and (match_if.group("NOT") == "n")
-                            else self.expand_token(
-                                token,
-                                try_if_else,
-                                raise_key_error=False,
-                                zero_undefined=True,
-                            )
-                        )
-                        if_token_val = bool(self.try_eval_num(if_token))
-                        if_true_bmp |= BIT(if_depth) * (
-                            if_token_val ^ (match_if.group("NOT") == "n")
-                        )
-                        first_guard_token = (
-                            False if match_if.group("NOT") == "n" else first_guard_token
-                        )
-                    elif match_elif:
-                        if_token = self.expand_token(
-                            match_elif.group("TOKEN"),
+            if try_if_else:
+                match_if = re.match(r"#if((?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line)
+                match_elif = re.match(r"#elif\s*(?P<TOKEN>.+)", line)
+                match_else = re.match(r"#else.*", line)
+                match_endif = re.match(r"#endif.*", line)
+                if match_if:
+                    if_depth += 1
+                    token = match_if.group("TOKEN")
+                    if_token = (
+                        "0"  # header guard always uses #ifndef *
+                        if ignore_header_guard
+                        and first_guard_token
+                        and (match_if.group("NOT") == "n")
+                        else self.expand_token(
+                            token,
                             try_if_else,
                             raise_key_error=False,
                             zero_undefined=True,
                         )
-                        if_token_val = bool(self.try_eval_num(if_token))
-                        if_true_bmp |= BIT(if_depth) * if_token_val
-                        if_true_bmp &= ~(BIT(if_depth) & if_done_bmp)
-                    elif match_else:
-                        if_true_bmp ^= BIT(if_depth)  # toggle state
-                        if_true_bmp &= ~(BIT(if_depth) & if_done_bmp)
-                    elif match_endif:
-                        if_true_bmp &= ~BIT(if_depth)
-                        if_done_bmp &= ~BIT(if_depth)
-                        if_depth -= 1
+                    )
+                    if_token_val = bool(self.try_eval_num(if_token))
+                    if_true_bmp |= BIT(if_depth) * (
+                        if_token_val ^ (match_if.group("NOT") == "n")
+                    )
+                    first_guard_token = (
+                        False if match_if.group("NOT") == "n" else first_guard_token
+                    )
+                elif match_elif:
+                    if_token = self.expand_token(
+                        match_elif.group("TOKEN"),
+                        try_if_else,
+                        raise_key_error=False,
+                        zero_undefined=True,
+                    )
+                    if_token_val = bool(self.try_eval_num(if_token))
+                    if_true_bmp |= BIT(if_depth) * if_token_val
+                    if_true_bmp &= ~(BIT(if_depth) & if_done_bmp)
+                elif match_else:
+                    if_true_bmp ^= BIT(if_depth)  # toggle state
+                    if_true_bmp &= ~(BIT(if_depth) & if_done_bmp)
+                elif match_endif:
+                    if_true_bmp &= ~BIT(if_depth)
+                    if_done_bmp &= ~BIT(if_depth)
+                    if_depth -= 1
 
-                multi_lines += re.sub(regex_line_break, "", line)
-                if re.search(regex_line_break, line):
-                    if reserve_whitespace:
-                        func(line, line_no)
-                    continue
-                single_line = re.sub(regex_line_break, "", multi_lines)
-                if if_true_bmp == BIT(if_depth + 1) - 1:
-                    func(single_line, line_no)
-                    if_done_bmp |= BIT(if_depth)
-                elif try_if_else and (
-                    match_if or match_elif or match_else or match_endif
-                ):
-                    func(single_line, line_no)
-                multi_lines = ""
+            multi_lines += re.sub(regex_line_break, "", line)
+            if re.search(regex_line_break, line):
+                if reserve_whitespace:
+                    func(line, line_no)
+                continue
+            single_line = re.sub(regex_line_break, "", multi_lines)
+            if if_true_bmp == BIT(if_depth + 1) - 1:
+                func(single_line, line_no)
+                if_done_bmp |= BIT(if_depth)
+            elif try_if_else and (match_if or match_elif or match_else or match_endif):
+                func(single_line, line_no)
+            multi_lines = ""
 
     def _get_define(self, line):
         match = re.match(REGEX_UNDEF, line)
@@ -307,7 +308,8 @@ class Parser:
                 self.defs[define.name] = define
 
             try:
-                self.read_file_lines(filepath, insert_def, try_if_else)
+                with open(filepath, "r", errors="replace") as fs:
+                    self.read_file_lines(fs, insert_def, try_if_else)
             except UnicodeDecodeError as e:
                 print("Fail to open {!r}. {}".format(filepath, e))
 
@@ -330,7 +332,8 @@ class Parser:
             self.defs[define.name] = define
 
         try:
-            self.read_file_lines(filepath, insert_def, try_if_else)
+            with open(filepath, "r", errors="replace") as fs:
+                self.read_file_lines(fs, insert_def, try_if_else)
         except UnicodeDecodeError as e:
             print("Fail to open :{}. {}".format(filepath, e))
 
@@ -349,7 +352,8 @@ class Parser:
             defs[define.name] = define
 
         try:
-            self.read_file_lines(filepath, insert_def, try_if_else)
+            with open(filepath, "r", errors="replace") as fs:
+                self.read_file_lines(fs, insert_def, try_if_else)
             for define in defs.values():
                 self.insert_define(
                     name=define.name,
@@ -518,7 +522,8 @@ class Parser:
                 )
             )
 
-        self.read_file_lines(filepath, expand_define, try_if_else, ignore_header_guard)
+        with open(filepath, "r", errors="replace") as fs:
+            self.read_file_lines(fs, expand_define, try_if_else, ignore_header_guard)
         return defines
 
     def get_expand_define(self, macro_name, try_if_else=True):
@@ -543,22 +548,28 @@ class Parser:
             lines.append(line)
 
         ignore_header_guard = os.path.splitext(filepath)[1] == ".h"
-        self.read_file_lines(
-            filepath,
-            read_line,
-            try_if_else,
-            ignore_header_guard,
-            reserve_whitespace=True,
-        )
+        with open(filepath, "r", errors="replace") as fs:
+            self.read_file_lines(
+                fs,
+                read_line,
+                try_if_else,
+                ignore_header_guard,
+                reserve_whitespace=True,
+            )
         return lines
 
 
 CACHE_OBJ_FILE = os.path.join(sublime.cache_path(), "DimInavtiveCode.db")
 PARSERS = {}
+PARSER_IS_BUILDING = set()
 
-REGION_INACTIVE = "inactive_source_code"
+REGION_INACTIVE_NAME = "inactive_source_code"
+PREDEFINE_FOLDER = ".define_parser_predefine"
+DEFAULT_SUPPORT_EXTS = ".c,.h,.cpp"
 
-DP_SETTING_HL_INACTIVE = "define_parser_highlight_inactive"
+DP_SETTING_HL_INACTIVE = "define_parser_highlight_inactive_enable"
+DP_SETTING_SUPPORT_EXT = "define_parser_highlight_extensions"
+DP_SETTING_COMPILE_FILE = "define_parser_compile_flag_file"
 
 
 def plugin_loaded():
@@ -585,17 +596,28 @@ def _init_parser(window):
         return None
 
     print("init_parser", active_folder)
+    PARSER_IS_BUILDING.add(active_folder)
+
     p = Parser()
     PARSERS[active_folder] = p
 
-    sublime.status_message("building define database, please wait...")
+    predefines = _get_configs_from_file(
+        window, window.settings().get(DP_SETTING_COMPILE_FILE)
+    )
+    for d in predefines:
+        print(" insert: ", d)
+        p.insert_define(d[0], token=d[1])
 
     def async_proc():
+        PARSER_IS_BUILDING.remove(active_folder)
         p.read_folder_h(active_folder)
         sublime.status_message("building define database done.")
+        if window.settings().get(DP_SETTING_HL_INACTIVE):
+            _mark_inactive_code(window.active_view())
         with open(CACHE_OBJ_FILE, "wb") as fs:
             pickle.dump(PARSERS, fs)
 
+    sublime.status_message("building define database, please wait...")
     sublime.set_timeout_async(async_proc, 0)
 
 
@@ -608,23 +630,29 @@ def _get_parser(window):
 
 def _mark_inactive_code(view):
     window = view.window()
+    if _get_folder(window) in PARSER_IS_BUILDING:
+        return
     p = _get_parser(window)
     filename = view.file_name()
     if p is None or filename is None:
         return
 
     _, ext = os.path.splitext(filename)
-    if ext not in {".c", ".h", ".cpp"}:
+    if ext not in window.settings().get(
+        DP_SETTING_SUPPORT_EXT, DEFAULT_SUPPORT_EXTS
+    ).split(","):
         return
 
-    num_lines = sum(1 for line in open(filename))
+    fileio = io.StringIO(view.substr(sublime.Region(0, view.size())))
+    num_lines = len(fileio.readlines())
     inactive_lines = set(range(1, 1 + num_lines))
 
     def mark_inactive(line, lineno):
         inactive_lines.remove(lineno)
 
+    fileio.seek(0)
     p.read_file_lines(
-        filename, mark_inactive, reserve_whitespace=True, ignore_header_guard=True
+        fileio, mark_inactive, reserve_whitespace=True, ignore_header_guard=True
     )
     print("  inactive lines count: ", len(inactive_lines))
 
@@ -633,7 +661,7 @@ def _mark_inactive_code(view):
         for line in inactive_lines
     ]
     view.add_regions(
-        REGION_INACTIVE,
+        REGION_INACTIVE_NAME,
         regions,
         scope="comment.block",
         flags=sublime.DRAW_NO_OUTLINE,
@@ -642,8 +670,43 @@ def _mark_inactive_code(view):
 
 def _unmark_inactive_code(view):
     print("unmark ", view.file_name())
-    view.erase_regions(REGION_INACTIVE)
-    view.settings().set(DP_SETTING_HL_INACTIVE, False)
+    view.erase_regions(REGION_INACTIVE_NAME)
+
+
+def _get_config_list(window):
+    folder = _get_folder(window)
+    if folder is None:
+        return None
+
+    config_path = os.path.join(folder, PREDEFINE_FOLDER)
+    print(config_path)
+    if os.path.exists(config_path):
+        return glob_recursive(config_path, "")
+
+
+def _get_configs_from_file(window, file_basename):
+    folder = _get_folder(window)
+    if folder is None or file_basename is None:
+        return []
+    select_config = os.path.join(folder, PREDEFINE_FOLDER, file_basename)
+
+    insert_defs = []
+    with open(select_config) as fs:
+        compile_flags = " ".join(fs.readlines()).split(" ")
+        for flag in compile_flags:
+            flag = flag.strip()
+            if flag.startswith("-D"):
+                tokens = flag.replace("-D", "").split("=")
+                if len(tokens) == 1:
+                    insert_defname = tokens[0]
+                    insert_value = "1"
+                elif len(tokens) == 2:
+                    insert_defname, insert_value = tokens
+                else:
+                    print("can not recognize %s" % flag)
+                insert_defs.append((insert_defname, insert_value))
+
+    return insert_defs
 
 
 class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
@@ -658,12 +721,58 @@ class BuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
 class ToggleMarkInactiveCode(sublime_plugin.WindowCommand):
     def run(self):
         view = self.window.active_view()
-        has_mark = view.settings().get(DP_SETTING_HL_INACTIVE)
+        has_mark = self.window.settings().get(DP_SETTING_HL_INACTIVE)
         if has_mark:
             _unmark_inactive_code(view)
         else:
             _mark_inactive_code(view)
-        view.settings().set(DP_SETTING_HL_INACTIVE, not has_mark)
+        self.window.settings().set(DP_SETTING_HL_INACTIVE, not has_mark)
+
+
+class SelectConfiguration(sublime_plugin.WindowCommand):
+    def run(self):
+        folder = _get_folder(self.window)
+        config_list = _get_config_list(self.window)
+        if config_list is None:
+            return
+        config_path = os.path.join(folder, PREDEFINE_FOLDER)
+
+        items = []
+        selected_config = self.window.settings().get(DP_SETTING_COMPILE_FILE)
+        print("current: ", selected_config)
+        selected_index = -1
+        for index, filename in enumerate(config_list):
+            selected = filename == selected_config
+
+            with open(filename) as fs:
+                compile_flags = " ".join(fs.readlines())
+                item = sublime.QuickPanelItem(os.path.relpath(filename, config_path))
+                item.details = compile_flags
+                item.kind = (
+                    (sublime.KIND_ID_COLOR_GREENISH, "✓", "")
+                    if selected
+                    else (0, "", "")
+                )
+                items.append(item)
+
+            if selected:
+                selected_index = index
+
+        self.window.show_quick_panel(
+            items, on_select=self._on_select, selected_index=selected_index
+        )
+
+    def _on_select(self, selected_index):
+        config_list = _get_config_list(self.window)
+        if config_list is None:
+            return
+        config_file = config_list[selected_index]
+        if config_file == self.window.settings().get(DP_SETTING_COMPILE_FILE):
+            return
+        self.window.settings().set(DP_SETTING_COMPILE_FILE, config_file)
+        self.window.run_command("build_define_database")
+        for view in self.window.views(include_transient=True):
+            _unmark_inactive_code(view)
 
 
 class ShowAllDefineCommand(sublime_plugin.WindowCommand):
@@ -758,8 +867,11 @@ class EvtListener(sublime_plugin.EventListener):
 
     def on_activated_async(self, view):
         print("activate", view.file_name())
-        shall_mark = view.settings().get(DP_SETTING_HL_INACTIVE)
-        if shall_mark:
+        window = view.window()
+        if window is None:
+            return
+
+        if window.settings().get(DP_SETTING_HL_INACTIVE):
             _mark_inactive_code(view)
         else:
             _unmark_inactive_code(view)

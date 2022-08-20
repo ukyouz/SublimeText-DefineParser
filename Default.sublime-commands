@@ -2,4 +2,5 @@
     { "caption": "Define Parser: Build #define Data", "command": "build_define_database" },
     { "caption": "Define Parser: Show All #define Values", "command": "show_all_define" },
     { "caption": "Define Parser: Toggle Highlight for Inactive Code", "command": "toggle_mark_inactive_code" },
+    { "caption": "Define Parser: Select Define Configuration", "command": "select_configuration" },
 ]
