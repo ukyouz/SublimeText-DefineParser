@@ -4,4 +4,5 @@
     { "caption": "Define Parser: Show All #define Values", "command": "show_all_defines" },
     { "caption": "Define Parser: Toggle Highlight for Inactive Code", "command": "toggle_mark_inactive_code" },
     { "caption": "Define Parser: Select Define Configuration", "command": "select_configuration" },
+    { "caption": "Define Parser: Toggle Debug Log", "command": "toggle_define_parser_debug_log" },
 ]

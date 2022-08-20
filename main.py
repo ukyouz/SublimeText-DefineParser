@@ -1,11 +1,14 @@
 import html
 import io
+import logging
 import os
 import pickle
 import re
 
 import sublime
 import sublime_plugin
+
+logger = logging.getLogger("define-parser")
 
 
 def convertall_dec2fmt(text, fmt="0x{:X}"):
@@ -32,6 +35,8 @@ PREDEFINE_FOLDER = ".define_parser_compiler_files"
 DP_SETTING_HL_INACTIVE = "highlight_inactive_enable"
 DP_SETTING_SUPPORT_EXT = "highlight_inactive_extensions"
 DP_SETTING_COMPILE_FILE = "compile_flag_file"
+DP_SETTING_LOG_DEBUG = "define_parser_debug_log_enable"
+
 
 def _get_default_settings():
     return sublime.load_settings("DefineParser.sublime-settings")
@@ -39,6 +44,9 @@ def _get_default_settings():
 
 # special function for plugin loaded callback
 def plugin_loaded():
+    if _get_default_settings().get(DP_SETTING_LOG_DEBUG, False):
+        logger.setLevel(logging.DEBUG)
+
     if not os.path.exists(CACHE_OBJ_FILE):
         return
 
@@ -64,7 +72,7 @@ def _get_folder(window):
         return
     folders = window.folders()
     if len(folders) != 1:
-        print("Currently only support one folder in a Window.")
+        logger.warning("Currently only support one folder in a Window.")
         return None
 
     # TODO: use root marks
@@ -76,7 +84,7 @@ def _init_parser(window):
     if active_folder is None:
         return None
 
-    print("init_parser", active_folder)
+    logger.info("init_parser %s", active_folder)
     PARSER_IS_BUILDING.add(active_folder)
 
     p = Parser()
@@ -86,7 +94,7 @@ def _init_parser(window):
         window, _get_setting(window, DP_SETTING_COMPILE_FILE)
     )
     for d in predefines:
-        print(" insert: ", d)
+        logger.debug("  predefine: %s", d)
         p.insert_define(d[0], token=d[1])
 
     def async_proc():
@@ -139,7 +147,7 @@ def _mark_inactive_code(view):
         ignore_header_guard=True,
         block_comment_cb=_exection_code_cb,
     )
-    print("inactive lines count: ", len(inactive_lines))
+    logger.debug("inactive lines count: %d", len(inactive_lines))
 
     regions = [
         sublime.Region(view.text_point(line - 1, 0), view.text_point(line, 0))
@@ -154,7 +162,7 @@ def _mark_inactive_code(view):
 
 
 def _unmark_inactive_code(view):
-    print("unmark ", view.file_name())
+    logger.debug("unmark %s", view.file_name())
     view.erase_regions(REGION_INACTIVE_NAME)
 
 
@@ -164,7 +172,6 @@ def _get_config_list(window):
         return None
 
     config_path = os.path.join(folder, PREDEFINE_FOLDER)
-    print(config_path)
     if os.path.exists(config_path):
         return glob_recursive(config_path, "")
 
@@ -190,7 +197,7 @@ def _get_configs_from_file(window, file_basename):
                 elif len(tokens) == 2:
                     insert_defname, insert_value = tokens
                 else:
-                    print("can not recognize %s" % flag)
+                    logger.warning("can not recognize %s", flag)
                 insert_defs.append((insert_defname, insert_value))
 
     return insert_defs
@@ -245,7 +252,7 @@ class SelectConfiguration(sublime_plugin.WindowCommand):
 
         items = []
         selected_config = _get_setting(self.window, DP_SETTING_COMPILE_FILE)
-        print("current: ", selected_config)
+        logger.info("current config: %s", selected_config)
         selected_index = -1
         for index, filename in enumerate(config_list):
             selected = filename == selected_config
@@ -349,7 +356,7 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
 
         define = parser.get_expand_define(symbol)
         if define is not None:
-            print(define)
+            logger.debug(define)
             value = parser.try_eval_num(define.token)
             if value is not None:
                 text = "{} ({})".format(value, hex(value))
@@ -377,6 +384,16 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
             )
 
 
+class ToggleDefineParserDebugLog(sublime_plugin.WindowCommand):
+    def run(self):
+        show_debug = not _get_setting(self.window, DP_SETTING_LOG_DEBUG)
+        if show_debug:
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.INFO)
+        _set_setting(self.window, DP_SETTING_LOG_DEBUG, show_debug)
+
+
 class EvtListener(sublime_plugin.EventListener):
     def on_new_window_async(self, window):
         active_folder = _get_folder(window)
@@ -385,7 +402,7 @@ class EvtListener(sublime_plugin.EventListener):
         _init_parser(window)
 
     def on_load_async(self, view):
-        print("load", view.file_name())
+        logger.debug("load %s", view.file_name())
         window = view.window()
 
         if _get_setting(window, DP_SETTING_HL_INACTIVE):
@@ -395,7 +412,7 @@ class EvtListener(sublime_plugin.EventListener):
 
     def on_post_save_async(self, view):
         filename = view.file_name()
-        print("save", filename)
+        logger.debug("save %s", filename)
         window = view.window()
 
         current_config = _get_setting(window, DP_SETTING_COMPILE_FILE)
@@ -415,7 +432,7 @@ class EvtListener(sublime_plugin.EventListener):
         filename = view.file_name()
         if window is None or filename is None:
             return
-        print("activate", filename)
+        logger.debug("activate %s", filename)
 
         if _get_setting(window, DP_SETTING_HL_INACTIVE):
             _mark_inactive_code(view)

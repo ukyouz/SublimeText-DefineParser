@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 # import functools
@@ -16,6 +17,8 @@ REGEX_DEFINE = (
 REGEX_UNDEF = r"#undef\s+" + REGEX_TOKEN
 REGEX_INCLUDE = r'#include\s+["<](?P<PATH>.+)[">]\s*'
 BIT = lambda n: 1 << n
+
+logger = logging.getLogger("define-parser")
 
 
 def glob_recursive(directory, ext=".c"):
@@ -251,7 +254,7 @@ class Parser:
 
         # TODO: use git ls-files for git directory
         header_files = glob_recursive(directory, ".h")
-        print("read_header cnt: ", len(header_files))
+        logger.debug("read_header cnt: %d", len(header_files))
 
         header_done = set()
         pre_defined_keys = self.defs.keys()
@@ -296,7 +299,7 @@ class Parser:
                 with open(filepath, "r", errors="replace") as fs:
                     self.read_file_lines(fs, insert_def, try_if_else)
             except UnicodeDecodeError as e:
-                print("Fail to open {!r}. {}".format(filepath, e))
+                logger.warning("Fail to open {!r}. {}".format(filepath, e))
 
             if filepath in header_files:
                 header_done.add(filepath)

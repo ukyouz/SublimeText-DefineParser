@@ -7,4 +7,7 @@
     // specify the extension list for inactive code region highlighting
     // separate by comma
     "highlight_inactive_extensions": ".h,.c,.cpp",
+
+    // enable debug log
+    "define_parser_debug_log_enable": false,
 }
