@@ -5,7 +5,6 @@ import os
 import pickle
 import re
 import threading
-
 # import functools
 from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
@@ -127,6 +126,7 @@ class Parser:
             token = token.replace("/", "//")
             token = token.replace("&&", " and ")
             token = token.replace("||", " or ")
+            token = token.replace("!", " not ")
             return int(eval(token))
         except:
             return None
@@ -138,6 +138,7 @@ class Parser:
         try_if_else=True,
         ignore_header_guard=False,
         reserve_whitespace=False,
+        block_comment_cb=None,
     ):
         regex_line_break = r"\\\s*$"
         regex_line_comment = r"\s*\/\/.*$"
@@ -167,6 +168,8 @@ class Parser:
                     line = line[line.index("*/") + 2 :]
                     is_block_comment = False
                 else:
+                    if callable(block_comment_cb):
+                        block_comment_cb(line, line_no)
                     continue
 
             line = re.sub(
@@ -265,6 +268,7 @@ class Parser:
     def read_folder_h(self, directory, try_if_else=True):
         self.folder = directory
 
+        # TODO: use git ls-files for git directory
         header_files = glob_recursive(directory, ".h")
         print("read_header cnt: ", len(header_files))
 
@@ -573,10 +577,15 @@ DP_SETTING_COMPILE_FILE = "define_parser_compile_flag_file"
 
 
 def plugin_loaded():
-    if os.path.exists(CACHE_OBJ_FILE):
+    if not os.path.exists(CACHE_OBJ_FILE):
+        return
+
+    def _restore_cache():
         global PARSERS
         with open(CACHE_OBJ_FILE, "rb") as fs:
             PARSERS = pickle.load(fs)
+
+    sublime.set_timeout_async(_restore_cache, 0)
 
 
 def _get_folder(window):
@@ -609,11 +618,13 @@ def _init_parser(window):
         p.insert_define(d[0], token=d[1])
 
     def async_proc():
-        PARSER_IS_BUILDING.remove(active_folder)
         p.read_folder_h(active_folder)
-        sublime.status_message("building define database done.")
+        PARSER_IS_BUILDING.remove(active_folder)
+
         if window.settings().get(DP_SETTING_HL_INACTIVE, True):
             _mark_inactive_code(window.active_view())
+
+        sublime.status_message("building define database done.")
         with open(CACHE_OBJ_FILE, "wb") as fs:
             pickle.dump(PARSERS, fs)
 
@@ -647,14 +658,18 @@ def _mark_inactive_code(view):
     num_lines = len(fileio.readlines())
     inactive_lines = set(range(1, 1 + num_lines))
 
-    def mark_inactive(line, lineno):
+    def _exection_code_cb(line, lineno):
         inactive_lines.remove(lineno)
 
     fileio.seek(0)
     p.read_file_lines(
-        fileio, mark_inactive, reserve_whitespace=True, ignore_header_guard=True
+        fileio,
+        _exection_code_cb,
+        reserve_whitespace=True,
+        ignore_header_guard=True,
+        block_comment_cb=_exection_code_cb,
     )
-    print("  inactive lines count: ", len(inactive_lines))
+    print("inactive lines count: ", len(inactive_lines))
 
     regions = [
         sublime.Region(view.text_point(line - 1, 0), view.text_point(line, 0))
@@ -792,7 +807,6 @@ class ShowAllDefineCommand(sublime_plugin.WindowCommand):
         new_view = self.window.new_file(sublime.TRANSIENT)
         new_view.set_name("Define Value - " + folder)
         new_view.set_syntax_file("Packages/C++/C.sublime-syntax")
-        # texts = []
 
         def insert_defs():
             for define in parser.defs.values():
@@ -806,7 +820,6 @@ class ShowAllDefineCommand(sublime_plugin.WindowCommand):
             sublime.status_message("%d defines found!" % len(parser.defs))
 
         sublime.set_timeout_async(insert_defs, 0)
-        # new_view.run_command("insert", {"characters": "\n".join(texts)})
 
 
 class CalcValue(sublime_plugin.TextCommand):
@@ -871,12 +884,20 @@ class EvtListener(sublime_plugin.EventListener):
     def on_load_async(self, view):
         print("load", view.file_name())
         window = view.window()
-        p = _get_parser(window)
-        if p is None:
-            _init_parser(window)
 
-    # def on_reload(self, view):
-    #     print("reload", view.file_name())
+        if window.settings().get(DP_SETTING_HL_INACTIVE, True):
+            _mark_inactive_code(view)
+        else:
+            _unmark_inactive_code(view)
+
+    def on_post_save_async(self, view):
+        print("save", view.file_name())
+        window = view.window()
+
+        if window.settings().get(DP_SETTING_HL_INACTIVE, True):
+            _mark_inactive_code(view)
+        else:
+            _unmark_inactive_code(view)
 
     def on_activated_async(self, view):
         print("activate", view.file_name())
