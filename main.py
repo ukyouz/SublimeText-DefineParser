@@ -190,7 +190,7 @@ def _get_configs_from_file(window, file_basename):
         for flag in compile_flags:
             flag = flag.strip()
             if flag.startswith("-D"):
-                tokens = flag.replace("-D", "").split("=")
+                tokens = re.sub(r"^\-D", "", flag).split("=")
                 if len(tokens) == 1:
                     insert_defname = tokens[0]
                     insert_value = "1"
@@ -198,6 +198,7 @@ def _get_configs_from_file(window, file_basename):
                     insert_defname, insert_value = tokens
                 else:
                     logger.warning("can not recognize %s", flag)
+                    continue
                 insert_defs.append((insert_defname, insert_value))
 
     return insert_defs
