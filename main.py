@@ -8,6 +8,8 @@ import re
 import sublime
 import sublime_plugin
 
+from .C_DefineParser import DEFINE, Parser
+
 logger = logging.getLogger("define-parser")
 
 
@@ -136,17 +138,14 @@ def _mark_inactive_code(view):
     num_lines = len(fileio.readlines())
     inactive_lines = set(range(1, 1 + num_lines))
 
-    def _exection_code_cb(line, lineno):
-        inactive_lines.remove(lineno)
-
     fileio.seek(0)
-    p.read_file_lines(
+    for _, lineno in p.read_file_lines(
         fileio,
-        _exection_code_cb,
         reserve_whitespace=True,
         ignore_header_guard=True,
-        block_comment_cb=_exection_code_cb,
-    )
+        include_block_comment=True,
+    ):
+        inactive_lines.remove(lineno)
     logger.debug("inactive lines count: %d", len(inactive_lines))
 
     regions = [

@@ -118,11 +118,10 @@ class Parser:
     def read_file_lines(
         self,
         fileio,
-        func,
         try_if_else=True,
         ignore_header_guard=False,
         reserve_whitespace=False,
-        block_comment_cb=None,
+        include_block_comment=False,
     ):
         regex_line_break = r"\\\s*$"
         regex_line_comment = r"\s*\/\/.*$"
@@ -152,8 +151,8 @@ class Parser:
                     line = line[line.index("*/") + 2 :]
                     is_block_comment = False
                 else:
-                    if callable(block_comment_cb):
-                        block_comment_cb(line, line_no)
+                    if include_block_comment:
+                        yield (line, line_no)
                     continue
 
             line = re.sub(
@@ -208,14 +207,14 @@ class Parser:
             multi_lines += re.sub(regex_line_break, "", line)
             if re.search(regex_line_break, line):
                 if reserve_whitespace:
-                    func(line, line_no)
+                    yield (line, line_no)
                 continue
             single_line = re.sub(regex_line_break, "", multi_lines)
             if if_true_bmp == BIT(if_depth + 1) - 1:
-                func(single_line, line_no)
+                yield (single_line, line_no)
                 if_done_bmp |= BIT(if_depth)
             elif try_if_else and (match_if or match_elif or match_else or match_endif):
-                func(single_line, line_no)
+                yield (single_line, line_no)
             multi_lines = ""
 
     def _get_define(self, line):
@@ -283,21 +282,20 @@ class Parser:
             if filepath == None or filepath in header_done:
                 return
 
-            def insert_def(line, _):
-                match_include = re.match(REGEX_INCLUDE, line)
-                if match_include != None:
-                    # parse included file first
-                    path = match_include.group("PATH")
-                    included_file = get_included_file(path, src_file=filepath)
-                    read_header(included_file)
-                define = self._get_define(line)
-                if define == None or define.name in pre_defined_keys:
-                    return
-                self.defs[define.name] = define
-
             try:
                 with open(filepath, "r", errors="replace") as fs:
-                    self.read_file_lines(fs, insert_def, try_if_else)
+                    for line, _ in self.read_file_lines(fs, try_if_else):
+                        match_include = re.match(REGEX_INCLUDE, line)
+                        if match_include != None:
+                            # parse included file first
+                            path = match_include.group("PATH")
+                            included_file = get_included_file(path, src_file=filepath)
+                            read_header(included_file)
+                        define = self._get_define(line)
+                        if define == None or define.name in pre_defined_keys:
+                            continue
+                        self.defs[define.name] = define
+
             except UnicodeDecodeError as e:
                 logger.warning("Fail to open {!r}. {}".format(filepath, e))
 
@@ -443,29 +441,29 @@ class Parser:
     def get_expand_defines(self, filepath, try_if_else=True, ignore_header_guard=True):
         defines = []
 
-        def expand_define(line, _):
-            define = self._get_define(line)
-            if define == None:
-                return
-            self.iterate = 0
-            token = self.expand_token(define.token, try_if_else, raise_key_error=False)
-            if define.name in self.defs:
-                token_val = self.try_eval_num(token)
-                if token_val is not None:
-                    self.defs[define.name] = self.defs[define.name]._replace(
-                        token=str(token_val)
-                    )
-            defines.append(
-                DEFINE(
-                    name=define.name,
-                    params=define.params,
-                    token=token,
-                    line=line,
-                )
-            )
-
         with open(filepath, "r", errors="replace") as fs:
-            self.read_file_lines(fs, expand_define, try_if_else, ignore_header_guard)
+            for line, _ in self.read_file_lines(fs, try_if_else, ignore_header_guard):
+                define = self._get_define(line)
+                if define == None:
+                    continue
+                self.iterate = 0
+                token = self.expand_token(
+                    define.token, try_if_else, raise_key_error=False
+                )
+                if define.name in self.defs:
+                    token_val = self.try_eval_num(token)
+                    if token_val is not None:
+                        self.defs[define.name] = self.defs[define.name]._replace(
+                            token=str(token_val)
+                        )
+                defines.append(
+                    DEFINE(
+                        name=define.name,
+                        params=define.params,
+                        token=token,
+                        line=line,
+                    )
+                )
         return defines
 
     def get_expand_define(self, macro_name, try_if_else=True):
@@ -486,16 +484,13 @@ class Parser:
     def get_preprocess_source(self, filepath, try_if_else=True):
         lines = []
 
-        def read_line(line, _):
-            lines.append(line)
-
         ignore_header_guard = os.path.splitext(filepath)[1] == ".h"
         with open(filepath, "r", errors="replace") as fs:
-            self.read_file_lines(
+            for line, _ in self.read_file_lines(
                 fs,
-                read_line,
                 try_if_else,
                 ignore_header_guard,
                 reserve_whitespace=True,
-            )
+            ):
+                lines.append(line)
         return lines
