@@ -10,7 +10,14 @@ import sublime_plugin
 
 from .C_DefineParser import DEFINE, Parser
 
-logger = logging.getLogger("define-parser")
+formatter = logging.Formatter(fmt="[{name}] {levelname}: {message}", style="{")
+
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+handler.setLevel(logging.DEBUG)
+
+logger = logging.getLogger("Define Parser")
+logger.setLevel(logging.INFO)
 
 
 def convertall_dec2fmt(text, fmt="0x{:X}"):
@@ -27,7 +34,7 @@ def glob_recursive(directory, ext=".c"):
     ]
 
 
-CACHE_OBJ_FILE = os.path.join(sublime.cache_path(), "DimInavtiveCode.db")
+CACHE_OBJ_FOLDER = os.path.join(sublime.cache_path(), "DefineParser")
 PARSERS = {}
 PARSER_IS_BUILDING = set()
 
@@ -36,8 +43,19 @@ PREDEFINE_FOLDER = ".define_parser_compiler_files"
 
 DP_SETTING_HL_INACTIVE = "highlight_inactive_enable"
 DP_SETTING_SUPPORT_EXT = "highlight_inactive_extensions"
-DP_SETTING_COMPILE_FILE = "compile_flag_file"
+DP_SETTING_ROOT_MARKERS = "define_parser_root_markers"
 DP_SETTING_LOG_DEBUG = "define_parser_debug_log_enable"
+DP_SETTING_COMPILE_FILE = "compile_flag_file"
+
+
+def _escape_filepath(folder):
+    trans = str.maketrans("/\\:", "---")
+    return folder.translate(trans)
+
+
+def _get_cache_file_for_folder(folder):
+    tag_file = _escape_filepath(folder) + ".dtag"
+    return os.path.join(CACHE_OBJ_FOLDER, tag_file)
 
 
 def _get_default_settings():
@@ -46,27 +64,37 @@ def _get_default_settings():
 
 # special function for plugin loaded callback
 def plugin_loaded():
-    if _get_default_settings().get(DP_SETTING_LOG_DEBUG, False):
+    logger.addHandler(handler)
+
+    if _get_setting(sublime.active_window(), DP_SETTING_LOG_DEBUG):
         logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
 
-    if not os.path.exists(CACHE_OBJ_FILE):
-        return
+    if not os.path.exists(CACHE_OBJ_FOLDER):
+        os.makedirs(CACHE_OBJ_FOLDER)
 
-    def _restore_cache():
-        global PARSERS
-        with open(CACHE_OBJ_FILE, "rb") as fs:
-            PARSERS = pickle.load(fs)
 
-    sublime.set_timeout_async(_restore_cache, 0)
+# special function for plugin unloaded callback
+def plugin_unloaded():
+    logger.removeHandler(handler)
 
 
 def _get_setting(obj_has_settings, key, default=None):
     defaults = _get_default_settings()
+    if obj_has_settings is None:
+        return defaults.get(key, default)
     return obj_has_settings.settings().get(key, defaults.get(key, default))
 
 
 def _set_setting(obj_has_settings, key, value):
     obj_has_settings.settings().set(key, value)
+
+
+def _is_root(folder, marker_list):
+    markers = set(marker_list)
+    files = set(os.listdir(folder))
+    return len(markers & files)
 
 
 def _get_folder(window):
@@ -78,7 +106,16 @@ def _get_folder(window):
         return None
 
     # TODO: use root marks
-    return folders[0]
+    root_folder = folders[0]
+    markers = _get_setting(window, DP_SETTING_ROOT_MARKERS)
+    while not _is_root(root_folder, markers):
+        if root_folder == os.path.dirname(root_folder):
+            # root not found, just use current folder as root
+            return folders[0]
+
+        root_folder = os.path.dirname(root_folder)
+
+    return root_folder
 
 
 def _init_parser(window):
@@ -88,6 +125,15 @@ def _init_parser(window):
 
     logger.info("init_parser %s", active_folder)
     PARSER_IS_BUILDING.add(active_folder)
+
+    cache_file = _get_cache_file_for_folder(active_folder)
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "rb") as fs:
+                PARSERS[active_folder] = pickle.load(fs)
+            return
+        except:
+            pass
 
     p = Parser()
     PARSERS[active_folder] = p
@@ -107,8 +153,8 @@ def _init_parser(window):
             _mark_inactive_code(window.active_view())
 
         sublime.status_message("building define database done.")
-        with open(CACHE_OBJ_FILE, "wb") as fs:
-            pickle.dump(PARSERS, fs)
+        with open(_get_cache_file_for_folder(active_folder), "wb") as fs:
+            pickle.dump(p, fs)
 
     sublime.status_message("building define database, please wait...")
     sublime.set_timeout_async(async_proc, 0)
@@ -131,7 +177,7 @@ def _mark_inactive_code(view):
         return
 
     _, ext = os.path.splitext(filename)
-    if ext not in _get_setting(window, DP_SETTING_SUPPORT_EXT).split(","):
+    if ext not in _get_setting(window, DP_SETTING_SUPPORT_EXT):
         return
 
     fileio = io.StringIO(view.substr(sublime.Region(0, view.size())))
@@ -209,6 +255,9 @@ class RebuildDefineDatabaseCommand(sublime_plugin.WindowCommand):
         if active_folder is None:
             return
 
+        cache_file = _get_cache_file_for_folder(active_folder)
+        if os.path.exists(cache_file):
+            os.remove(cache_file)
         _init_parser(self.window)
 
 

@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import subprocess
 # import functools
 from collections import OrderedDict, namedtuple
 from pprint import pformat
@@ -18,7 +19,7 @@ REGEX_UNDEF = r"#undef\s+" + REGEX_TOKEN
 REGEX_INCLUDE = r'#include\s+["<](?P<PATH>.+)[">]\s*'
 BIT = lambda n: 1 << n
 
-logger = logging.getLogger("define-parser")
+logger = logging.getLogger("Define Parser")
 
 
 def glob_recursive(directory, ext=".c"):
@@ -26,6 +27,30 @@ def glob_recursive(directory, ext=".c"):
         os.path.join(root, filename)
         for root, dirnames, filenames in os.walk(directory)
         for filename in filenames
+        if filename.endswith(ext)
+    ]
+
+
+def is_git(folder):
+    markers = {".git", ".gitlab"}
+    files = set(os.listdir(folder))
+    return len(markers & files)
+
+
+def git_lsfiles(directory, ext=".h"):
+    try:
+        filelist = subprocess.check_output(["git", "--git-dir", directory, "ls-files"])
+    except subprocess.CalledProcessError:
+        # fallback to normal glob if git command fail
+        return glob_recursive(directory, ext)
+    except FileNotFoundError:
+        # fallback to normal glob if git command fail
+        return glob_recursive(directory, ext)
+
+    filelist = proc.stdout.decode().split("\n")
+    return [
+        os.path.join(directory, filename)
+        for filename in filelist
         if filename.endswith(ext)
     ]
 
@@ -251,8 +276,10 @@ class Parser:
     def read_folder_h(self, directory, try_if_else=True):
         self.folder = directory
 
-        # TODO: use git ls-files for git directory
-        header_files = glob_recursive(directory, ".h")
+        if is_git(directory):
+            header_files = git_lsfiles(directory, ".h")
+        else:
+            header_files = glob_recursive(directory, ".h")
         logger.debug("read_header cnt: %d", len(header_files))
 
         header_done = set()
