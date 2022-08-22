@@ -2,17 +2,17 @@
 
 ![Hero Screenshot](images/hero-screenshot.png)
 
-This is a python parser for calculating C #define values.
+This is a python parser for calculating C #define values, extended from [ukyouz/C-define-Parser](https://github.com/ukyouz/C-define-Parser).
 
 Support functions:
 
 - Show cursor define value/ all define values
 - Parse define values from the folder marked as root
-- Mark inactive code under configurations
+- Mark inactive code under the specified configuration
 
 ## Usages
 
-Open a C project folder with sublime, this plugin will start building the define data.
+Open a C project folder with Sublime Text, this plugin will start building the define data.
 
 With default settings, parser will lookup the closest parent folder that contains the following root markers.
 
@@ -50,7 +50,7 @@ If you don’t want this behavior at startup, change the follow setting:
 
 You can also run the `Define Parser: Toggle Highlight for Inactive Code` command to toggle the highlight state, or use the default keymap `Ctrl-\`.
 
-The inactive code highlight by default only shown in the following extensions:
+The inactive code highlighting by default only shown for files with following extensions:
 
 ```json
 {
@@ -71,3 +71,11 @@ After the config selection, it takes a while to rebuild the define data; then th
 For example, we specify the `-DENV=ENV_TEST` in our config file:
 
 ![Preview: Highlight Inactive Code with Config](images/preview-highlight-inactive-with-config.png)
+
+<hr>
+
+## Limitations/ Known Issues
+
+- Currently only support one folder open in one Sublime Text Window.
+- The DEFINITION appears before `#define DEFINITION` will also be seen as a defined value, context order is not well-handled.
+- Build define data may be slow (few seconds) for large project, required further optimizations for parsing speed.
