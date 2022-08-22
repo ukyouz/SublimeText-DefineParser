@@ -8,7 +8,7 @@ from collections import OrderedDict, defaultdict, namedtuple
 from pprint import pformat
 
 DEFINE = namedtuple("DEFINE", ("name", "params", "token", "line", "file", "lineno"))
-TOKEN = namedtuple("DEFINE", ("name", "params", "line"))
+TOKEN = namedtuple("TOKEN", ("name", "params", "line"))
 
 REGEX_TOKEN = r"\b(?P<NAME>[a-zA-Z_][a-zA-Z0-9_]+)\b"
 REGEX_DEFINE = (
@@ -192,26 +192,24 @@ class Parser:
             )
 
             if try_if_else:
-                match_if = re.match(r"#if((?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line)
+                match_if = re.match(r"#if(?P<DEF>(?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line)
                 match_elif = re.match(r"#elif\s*(?P<TOKEN>.+)", line)
                 match_else = re.match(r"#else.*", line)
                 match_endif = re.match(r"#endif.*", line)
                 if match_if:
                     if_depth += 1
                     token = match_if.group("TOKEN")
-                    if_token = (
-                        "0"  # header guard always uses #ifndef *
-                        if ignore_header_guard
-                        and first_guard_token
-                        and (match_if.group("NOT") == "n")
-                        else self.expand_token(
-                            token,
-                            try_if_else,
-                            raise_key_error=False,
-                            zero_undefined=True,
-                        )
-                    )
-                    if_token_val = bool(self.try_eval_num(if_token))
+                    if match_if.group("DEF") is not None:
+                        # #ifdef, or #ifndef, only need to check whether the definition exists
+                        if_tokens = self.find_tokens(token)
+                        if_token = if_tokens[0].name if len(if_tokens) == 1 else "<unknown>"
+                        if ignore_header_guard and first_guard_token and (match_if.group("NOT") == "n"):
+                            if_token_val = 0 # header guard always uses #ifndef *
+                        else:
+                            if_token_val = if_token in self.defs
+                    else:
+                        if_token = self.expand_token(token, try_if_else, raise_key_error=False, zero_undefined=True)
+                        if_token_val = bool(self.try_eval_num(if_token))
                     if_true_bmp |= BIT(if_depth) * (
                         if_token_val ^ (match_if.group("NOT") == "n")
                     )
