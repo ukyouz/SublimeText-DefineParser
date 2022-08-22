@@ -356,8 +356,8 @@ class Parser:
                     break
             return new_params
 
-        if self.try_eval_num(token):
-            return []
+        # if self.try_eval_num(token) is not None:
+        #     return []
 
         # remove string value in token
         regex_str = r'"[^"]+"'
