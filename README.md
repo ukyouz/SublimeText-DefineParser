@@ -40,7 +40,7 @@ Inactive code region will be highlighted in gray by default.
 
 ![Preview: Highlight Inactive Code](images/preview-highlight-inactive.png)
 
-If you don't this behavior at startup, change the follow setting:
+If you don’t want this behavior at startup, change the follow setting:
 
 ```json
 {
@@ -62,9 +62,9 @@ If mismatch happened or the define data is corrupted, run the `Define Parser: Re
 
 ## Compiler Configurations
 
-For C compiler, some extra defines are specified in the compile command without being written in the source codes. To setup such extra defines, you can simply create a compiler flag file by running `Define Parser: Select Define Configuration` command. Follow the instructions, this plugin help you creating a config file in your root folder. After config file is created, you can choose the configuration you want to for more precise parsing result.
+For C compiler, some extra defines are specified in the compile command without being written in the source codes. To setup such extra defines, you can simply create a compiler flag file by running `Define Parser: Select Define Configuration` command. Follow the instructions, this plugin help you creating a config file in your root folder. After config file is created, you can choose the configuration you want for more precise parsing result.
 
-The file name will be used to regonized as the config name, and for the define parser usage, this plugin only take `-D` options.
+The file name will be used as the config name, and for the define parser usage, this plugin only take `-D` options.
 
 After the config selection, it takes a while to rebuild the define data; then the new configuration takes affect and the inactive region changes accordingly.
 
