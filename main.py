@@ -124,16 +124,19 @@ def _init_parser(window):
         return None
 
     logger.info("init_parser %s", active_folder)
-    PARSER_IS_BUILDING.add(active_folder)
 
     cache_file = _get_cache_file_for_folder(active_folder)
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "rb") as fs:
                 PARSERS[active_folder] = pickle.load(fs)
+            if _get_setting(window, DP_SETTING_HL_INACTIVE):
+                _mark_inactive_code(window.active_view())
             return
         except:
             pass
+
+    PARSER_IS_BUILDING.add(active_folder)
 
     p = Parser()
     PARSERS[active_folder] = p

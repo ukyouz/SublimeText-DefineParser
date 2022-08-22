@@ -1,0 +1,6 @@
+[
+    {
+        "command": "toggle_mark_inactive_code",
+        "keys": ["ctrl+\\"]
+    },
+]

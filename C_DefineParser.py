@@ -39,7 +39,10 @@ def is_git(folder):
 
 def git_lsfiles(directory, ext=".h"):
     try:
-        filelist = subprocess.check_output(["git", "--git-dir", directory, "ls-files"])
+        filelist = subprocess.check_output(
+            ["git", "--git-dir", directory, "ls-files"],
+            shell=True,  # remove flashing empty cmd window prompt
+        )
     except subprocess.CalledProcessError:
         # fallback to normal glob if git command fail
         return glob_recursive(directory, ext)
