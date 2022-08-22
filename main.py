@@ -8,7 +8,7 @@ import re
 import sublime
 import sublime_plugin
 
-from .C_DefineParser import DEFINE, Parser
+from . import C_DefineParser
 
 formatter = logging.Formatter(fmt="[{name}] {levelname}: {message}", style="{")
 
@@ -138,7 +138,7 @@ def _init_parser(window):
 
     PARSER_IS_BUILDING.add(active_folder)
 
-    p = Parser()
+    p = C_DefineParser.Parser()
     PARSERS[active_folder] = p
 
     predefines = _get_configs_from_file(
@@ -444,6 +444,7 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
             else:
                 text = html.escape(convertall_dec2fmt(define.token))
 
+            logger.info("%s = %s", define.name, text)
             view.show_popup(
                 "<em>Expansion of</em> <small>{}{}</small><br>{}".format(
                     define.name,
@@ -462,6 +463,7 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
                 text = "{} ({})".format(value, hex(value))
             else:
                 text = convertall_dec2fmt(expanded_token, "0x{:02x}")
+            logger.info("%s = %s", symbol, text)
             view.show_popup(
                 "<em>Expansion of</em> <small>{}</small><br>{}".format(
                     html.escape(symbol),
