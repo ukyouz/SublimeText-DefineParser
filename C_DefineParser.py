@@ -2,7 +2,6 @@ import logging
 import os
 import re
 import subprocess
-
 # import functools
 from collections import OrderedDict, defaultdict, namedtuple
 from pprint import pformat
@@ -64,17 +63,17 @@ class DuplicatedIncludeError(Exception):
 
 
 class Parser:
-    iterate = 0
-
     def __init__(self):
         self.reset()
         self.filelines = defaultdict(list)
 
     def reset(self):
         self.defs = OrderedDict()  # dict of DEFINE
+        self.zero_defs = set()
+        self.temp_defs = defaultdict(set)  # temp definitions in filename
         self.folder = ""
 
-    def insert_define(self, name, *, params=None, token=None):
+    def insert_define(self, name, *, params=None, token=None, filename="", lineno=0):
         """params: list of parameters required, token: define body"""
         new_params = params or []
         new_token = token or ""
@@ -83,15 +82,33 @@ class Parser:
             params=new_params,
             token=new_token,
             line="",
-            file="",
-            lineno=0,
+            file=filename,
+            lineno=lineno,
         )
 
-    def remove_define(self, name):
-        if name not in self.defs:
-            raise KeyError("token '{}' is not defined!".format(name))
+    def insert_temp_define(
+        self, name, *, params=None, token=None, filename="", lineno=0
+    ):
+        logger.debug("insert temp define: %s", name)
+        self.temp_defs[filename].add(name)
+        self.insert_define(
+            name, params=params, token=token, filename=filename, lineno=lineno
+        )
 
-        del self.defs[name]
+    def remove_temp_define(self, filename):
+        logger.debug("remove %d temp defines", len(self.temp_defs[filename]))
+        for name in self.temp_defs[filename]:
+            if name in self.defs:
+                del self.defs[name]
+        self.temp_defs[filename] = set()
+
+    def remove_define(self, name):
+        if name in self.defs:
+            del self.defs[name]
+        elif name in self.zero_defs:
+            self.zero_defs.remove(name)
+        else:
+            raise KeyError("token '{}' is not defined!".format(name))
 
     def strip_token(self, token, reserve_whitespace=False):
         if token == None:
@@ -126,7 +143,7 @@ class Parser:
             # limitation:
             #   for equation like (U32)1 << (U32)(15) may be calculated to wrong value
             #   due to operator order
-            data_sz = 2 ** sz_log2
+            data_sz = 2**sz_log2
             # sizeof(U16) -> 2
             token = re.sub(
                 r"sizeof\(\s*{}\s*\)".format(special_type), str(data_sz), token
@@ -192,7 +209,9 @@ class Parser:
             )
 
             if try_if_else:
-                match_if = re.match(r"#if(?P<DEF>(?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line)
+                match_if = re.match(
+                    r"#if(?P<DEF>(?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line
+                )
                 match_elif = re.match(r"#elif\s*(?P<TOKEN>.+)", line)
                 match_else = re.match(r"#else.*", line)
                 match_endif = re.match(r"#endif.*", line)
@@ -202,13 +221,24 @@ class Parser:
                     if match_if.group("DEF") is not None:
                         # #ifdef, or #ifndef, only need to check whether the definition exists
                         if_tokens = self.find_tokens(token)
-                        if_token = if_tokens[0].name if len(if_tokens) == 1 else "<unknown>"
-                        if ignore_header_guard and first_guard_token and (match_if.group("NOT") == "n"):
-                            if_token_val = 0 # header guard always uses #ifndef *
+                        if_token = (
+                            if_tokens[0].name if len(if_tokens) == 1 else "<unknown>"
+                        )
+                        if (
+                            ignore_header_guard
+                            and first_guard_token
+                            and (match_if.group("NOT") == "n")
+                        ):
+                            if_token_val = 0  # header guard always uses #ifndef *
                         else:
                             if_token_val = if_token in self.defs
                     else:
-                        if_token = self.expand_token(token, try_if_else, raise_key_error=False, zero_undefined=True)
+                        if_token = self.expand_token(
+                            token,
+                            try_if_else,
+                            raise_key_error=False,
+                            zero_undefined=True,
+                        )
                         if_token_val = bool(self.try_eval_num(if_token))
                     if_true_bmp |= BIT(if_depth) * (
                         if_token_val ^ (match_if.group("NOT") == "n")
@@ -356,9 +386,6 @@ class Parser:
                     break
             return new_params
 
-        # if self.try_eval_num(token) is not None:
-        #     return []
-
         # remove string value in token
         regex_str = r'"[^"]+"'
         token = re.sub(regex_str, "", token)
@@ -369,11 +396,9 @@ class Parser:
             for match in tokens:
                 _token = match.group("NAME")
                 params = None
-                if _token in self.defs:
-                    params_required = self.defs[_token].params
+                if _token in self.defs and self.defs[_token].params is not None:
                     end_pos = match.end()
-                    if params_required is not None:
-                        params = fine_token_params(token[end_pos:])
+                    params = fine_token_params(token[end_pos:])
                 param_str = params if params else ""
                 ret_tokens.append(
                     TOKEN(name=_token, params=params, line=_token + param_str)
@@ -410,7 +435,6 @@ class Parser:
         self, token, try_if_else=True, raise_key_error=True, zero_undefined=False
     ):
         expanded_token = self.strip_token(token)
-        self.iterate += 1
 
         word_boundary = lambda word: r"\b(##)*%s\b" % re.escape(word)
         tokens = self.find_tokens(expanded_token)
@@ -422,7 +446,9 @@ class Parser:
                 for p_tok in self.find_tokens(params):
                     params = re.sub(
                         word_boundary(p_tok.line),
-                        self.expand_token(p_tok.line, try_if_else, raise_key_error),
+                        self.expand_token(
+                            p_tok.line, try_if_else, raise_key_error, zero_undefined
+                        ),
                         params,
                     )
                     processed = list(t for t in tokens if p_tok.name == t.name)
@@ -446,14 +472,16 @@ class Parser:
                         expanded_token = expanded_token.replace(_token.line, new_token)
                     # Take care the remaining tokens
                     expanded_token = self.expand_token(
-                        expanded_token, try_if_else, raise_key_error
+                        expanded_token, try_if_else, raise_key_error, zero_undefined
                     )
+                elif name in self.zero_defs:
+                    expanded_token = expanded_token.replace(_token.line, "(0)")
                 elif raise_key_error:
                     raise KeyError("token '{}' is not defined!".format(name))
-                # else:
-                #     expanded_token = expanded_token.replace(_token.line, '(0)')
             elif name is not expanded_token:
-                params = self.expand_token(_token.line, try_if_else, raise_key_error)
+                params = self.expand_token(
+                    _token.line, try_if_else, raise_key_error, zero_undefined
+                )
                 expanded_token = re.sub(
                     word_boundary(_token.line), params, expanded_token
                 )
@@ -461,14 +489,17 @@ class Parser:
 
         if expanded_token in self.defs:
             expanded_token = self.expand_token(
-                self.defs[token].token, try_if_else, raise_key_error
+                self.defs[token].token, try_if_else, raise_key_error, zero_undefined
             )
 
             # try to eval the value, to reduce the bracket count
             token_val = self.try_eval_num(expanded_token)
             if token_val is not None:
                 expanded_token = str(token_val)
+        elif expanded_token in self.zero_defs:
+            return "0"
         elif zero_undefined and len(tokens) and expanded_token == name:
+            self.zero_defs.add(name)
             return "0"
 
         return expanded_token
@@ -483,7 +514,6 @@ class Parser:
                 define = self._get_define(line, filepath, lineno)
                 if define == None:
                     continue
-                self.iterate = 0
                 token = self.expand_token(
                     define.token, try_if_else, raise_key_error=False
                 )
@@ -493,6 +523,8 @@ class Parser:
                         self.defs[define.name] = self.defs[define.name]._replace(
                             token=str(token_val)
                         )
+                elif define.name in self.zero_defs:
+                    token_val = "0"
                 defines.append(
                     DEFINE(
                         name=define.name,

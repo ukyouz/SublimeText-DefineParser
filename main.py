@@ -215,6 +215,42 @@ def _unmark_inactive_code(view):
     view.erase_regions(REGION_INACTIVE_NAME)
 
 
+def _parse_temp_define(view):
+    window = view.window()
+    if _get_folder(window) in PARSER_IS_BUILDING:
+        return
+    p = _get_parser(window)
+    filename = view.file_name()
+    if p is None or filename is None:
+        return
+    fileio = io.StringIO(view.substr(sublime.Region(0, view.size())))
+    for line, lineno in p.read_file_lines(
+        fileio,
+        ignore_header_guard=True,
+    ):
+        define = p._get_define(line)
+        if define is None:
+            continue
+        p.insert_temp_define(
+            name=define.name,
+            params=define.params,
+            token=define.token,
+            filename=filename,
+            lineno=lineno,
+        )
+
+
+def _remove_temp_define(view):
+    window = view.window()
+    if _get_folder(window) in PARSER_IS_BUILDING:
+        return
+    p = _get_parser(window)
+    filename = view.file_name()
+    if p is None or filename is None:
+        return
+    p.remove_temp_define(filename)
+
+
 def _get_config_list(window):
     folder = _get_folder(window)
     if folder is None:
@@ -524,9 +560,19 @@ class EvtListener(sublime_plugin.EventListener):
         logger.debug("activate %s", filename)
 
         if _get_setting(window, DP_SETTING_HL_INACTIVE):
+            _parse_temp_define(view)
             _mark_inactive_code(view)
         else:
             _unmark_inactive_code(view)
+
+    def on_deactivated_async(self, view):
+        window = view.window()
+        filename = view.file_name()
+        p = _get_parser(window)
+        if window is None or filename is None or p is None:
+            return
+        logger.debug("deactivate %s", filename)
+        _remove_temp_define(view)
 
 
 class VwListener(sublime_plugin.ViewEventListener):
