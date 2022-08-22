@@ -437,7 +437,7 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
 
         define = parser.get_expand_define(symbol)
         if define is not None:
-            logger.debug(define)
+            logger.debug("%r", define)
             value = parser.try_eval_num(define.token)
             if value is not None:
                 text = "{} ({})".format(value, hex(value))
@@ -456,10 +456,16 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
             )
         else:
             expanded_token = parser.expand_token(symbol)
+            logger.debug("%r", expanded_token)
+            value = parser.try_eval_num(expanded_token)
+            if value is not None:
+                text = "{} ({})".format(value, hex(value))
+            else:
+                text = convertall_dec2fmt(expanded_token, "0x{:02x}")
             view.show_popup(
                 "<em>Expansion of</em> <small>{}</small><br>{}".format(
                     html.escape(symbol),
-                    html.escape(convertall_dec2fmt(expanded_token, "0x{:02X}")),
+                    html.escape(text),
                 ),
                 max_width=800,
             )
