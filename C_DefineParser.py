@@ -2,11 +2,12 @@ import logging
 import os
 import re
 import subprocess
+
 # import functools
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict, defaultdict, namedtuple
 from pprint import pformat
 
-DEFINE = namedtuple("DEFINE", ("name", "params", "token", "line"))
+DEFINE = namedtuple("DEFINE", ("name", "params", "token", "line", "file", "lineno"))
 TOKEN = namedtuple("DEFINE", ("name", "params", "line"))
 
 REGEX_TOKEN = r"\b(?P<NAME>[a-zA-Z_][a-zA-Z0-9_]+)\b"
@@ -67,6 +68,7 @@ class Parser:
 
     def __init__(self):
         self.reset()
+        self.filelines = defaultdict(list)
 
     def reset(self):
         self.defs = OrderedDict()  # dict of DEFINE
@@ -81,6 +83,8 @@ class Parser:
             params=new_params,
             token=new_token,
             line="",
+            file="",
+            lineno=0,
         )
 
     def remove_define(self, name):
@@ -245,7 +249,7 @@ class Parser:
                 yield (single_line, line_no)
             multi_lines = ""
 
-    def _get_define(self, line):
+    def _get_define(self, line, filepath="", lineno=0):
         match = re.match(REGEX_UNDEF, line)
         if match is not None:
             name = match.group("NAME")
@@ -269,11 +273,14 @@ class Parser:
         #define BBB()   // params = []
         #define CCC(a)  // params = ['a']
         """
+        self.filelines[filepath].append(lineno)
         return DEFINE(
             name=name,
             params=param_list if parentheses else None,
             token=token,
             line=line,
+            file=filepath,
+            lineno=lineno,
         )
 
     def read_folder_h(self, directory, try_if_else=True):
@@ -314,15 +321,15 @@ class Parser:
 
             try:
                 with open(filepath, "r", errors="replace") as fs:
-                    for line, _ in self.read_file_lines(fs, try_if_else):
+                    for line, lineno in self.read_file_lines(fs, try_if_else):
                         match_include = re.match(REGEX_INCLUDE, line)
-                        if match_include != None:
+                        if match_include is not None:
                             # parse included file first
                             path = match_include.group("PATH")
                             included_file = get_included_file(path, src_file=filepath)
                             read_header(included_file)
-                        define = self._get_define(line)
-                        if define == None or define.name in pre_defined_keys:
+                        define = self._get_define(line, filepath, lineno)
+                        if define is None or define.name in pre_defined_keys:
                             continue
                         self.defs[define.name] = define
 
@@ -472,8 +479,10 @@ class Parser:
         defines = []
 
         with open(filepath, "r", errors="replace") as fs:
-            for line, _ in self.read_file_lines(fs, try_if_else, ignore_header_guard):
-                define = self._get_define(line)
+            for line, lineno in self.read_file_lines(
+                fs, try_if_else, ignore_header_guard
+            ):
+                define = self._get_define(line, filepath, lineno)
                 if define == None:
                     continue
                 self.iterate = 0
@@ -492,6 +501,8 @@ class Parser:
                         params=define.params,
                         token=token,
                         line=line,
+                        file=filepath,
+                        lineno=lineno,
                     )
                 )
         return defines
@@ -509,6 +520,8 @@ class Parser:
             params=define.params,
             token=expanded_token,
             line=define.line,
+            file=define.file,
+            lineno=define.lineno,
         )
 
     def get_preprocess_source(self, filepath, try_if_else=True):

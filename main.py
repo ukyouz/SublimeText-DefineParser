@@ -195,6 +195,7 @@ def _mark_inactive_code(view):
         include_block_comment=True,
     ):
         inactive_lines.remove(lineno)
+    inactive_lines -= set(p.filelines.get(filename, []))
     logger.debug("inactive lines count: %d", len(inactive_lines))
 
     regions = [
