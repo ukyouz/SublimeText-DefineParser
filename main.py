@@ -221,7 +221,8 @@ def _parse_temp_define(view):
         return
     p = _get_parser(window)
     filename = view.file_name()
-    if p is None or filename is None:
+    _, ext = os.path.splitext(filename)
+    if p is None or filename is None or ext == ".h":
         return
     fileio = io.StringIO(view.substr(sublime.Region(0, view.size())))
     for line, lineno in p.read_file_lines(
@@ -246,7 +247,8 @@ def _remove_temp_define(view):
         return
     p = _get_parser(window)
     filename = view.file_name()
-    if p is None or filename is None:
+    _, ext = os.path.splitext(filename)
+    if p is None or filename is None or ext == ".h":
         return
     p.remove_temp_define(filename)
 
