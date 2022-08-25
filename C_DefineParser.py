@@ -23,6 +23,7 @@ logger = logging.getLogger("Define Parser")
 
 
 def glob_recursive(directory, ext=".c"):
+    logger.debug("glob **/*%s --recursieve", ext)
     return [
         os.path.join(root, filename)
         for root, dirnames, filenames in os.walk(directory)
@@ -38,9 +39,11 @@ def is_git(folder):
 
 
 def git_lsfiles(directory, ext=".h"):
+    git_cmds = ["git", "--git-dir", os.path.join(directory, ".git"), "ls-files"]
+    logger.debug(" ".join(git_cmds))
     try:
-        filelist = subprocess.check_output(
-            ["git", "--git-dir", directory, "ls-files"],
+        filelist_output = subprocess.check_output(
+            git_cmds,
             shell=True,  # remove flashing empty cmd window prompt
         )
     except subprocess.CalledProcessError:
@@ -50,7 +53,7 @@ def git_lsfiles(directory, ext=".h"):
         # fallback to normal glob if git command fail
         return glob_recursive(directory, ext)
 
-    filelist = proc.stdout.decode().split("\n")
+    filelist = filelist_output.decode().split("\n")
     return [
         os.path.join(directory, filename)
         for filename in filelist
