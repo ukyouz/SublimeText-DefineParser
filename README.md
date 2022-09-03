@@ -26,7 +26,21 @@ After define data is built, you can enjoy the following features.
 
 ### Get the Define Value
 
-By default, right clicking with `Alt` being pressed shows the calculated value of the define under current cursor position.
+By default, you have to manually execute `Define Parser: Calculate #define Value` to get the macro value under cursor. I highly recommend you adding the following configuration in the plugin Mouse Binding file, that you open from Menu -> Preferences -> Package Settings -> Define Parser -> Mouse Bindings.
+
+```json
+[
+    {
+        "button": "button1",
+        "count": 1,
+        "press_command": "drag_select",
+        "modifiers": ["alt"],
+        "command": "calculate_define_value"
+    },
+]
+```
+
+Then you can left clicking with `Alt` being pressed to show the calculated value of the define under current cursor position.
 
 ![Preview: Alt-Click Button1](images/preview-alt-click-button1.png)
 
@@ -48,7 +62,7 @@ If you don’t want this behavior at startup, change the follow setting:
 }
 ```
 
-You can also run the `Define Parser: Toggle Highlight for Inactive Code` command to toggle the highlight state, or use the default keymap `Ctrl-\`.
+You can also run the `Define Parser: Toggle Highlight for Inactive Code` command to toggle the highlight state for the current window, or use the default keymap `Ctrl-\`.
 
 The inactive code highlighting by default only shown for files with following extensions:
 
@@ -58,7 +72,7 @@ The inactive code highlighting by default only shown for files with following ex
 }
 ```
 
-If mismatch happened or the define data is corrupted, run the `Define Parser: Rebuild #define Data` command to rebuild.
+If mismatch happened or the define data is corrupted, try run the `Define Parser: Rebuild #define Data` command to rebuild parsing data.
 
 ## Compiler Configurations
 
