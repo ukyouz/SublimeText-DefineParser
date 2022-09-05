@@ -162,7 +162,7 @@ class Parser:
             token = token.replace("/", "//")
             token = token.replace("&&", " and ")
             token = token.replace("||", " or ")
-            token = token.replace("!", " not ")
+            token = re.sub("!(?!=)", " not ", token)
             return int(eval(token))
         except:
             return None
