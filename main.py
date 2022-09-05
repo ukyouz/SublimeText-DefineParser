@@ -261,6 +261,8 @@ def _get_config_list(window):
     config_path = os.path.join(folder, PREDEFINE_FOLDER)
     if os.path.exists(config_path):
         return glob_recursive(config_path, "")
+    else:
+        return []
 
 
 def _get_configs_from_file(window, file_basename):
@@ -349,10 +351,31 @@ def _creat_new_compiler_flag_file(window, filename):
     window.open_file(filename)
 
 
+def _alert_no_config(window):
+    folder = _get_folder(window)
+    config_list = _get_config_list(window)
+    config_path = os.path.join(folder, PREDEFINE_FOLDER)
+    if not sublime.ok_cancel_dialog(
+        "No compiler flags file found! Create one and try again.",
+        ok_title="Create For Me",
+        title="Define Parser",
+    ):
+        return False
+    if not os.path.exists(config_path):
+        os.makedirs(config_path)
+    sublime.save_dialog(
+        callback=lambda f: _creat_new_compiler_flag_file(window, f),
+        directory=config_path,
+        name="CONFIG_A",
+    )
+    return True
+
+
 class EditConfiguration(sublime_plugin.WindowCommand):
     def run(self):
         items, selected_index = _get_config_selection_items(self.window)
         if len(items) == 0:
+            _alert_no_config(self.window)
             return
         self.window.show_quick_panel(
             items,
@@ -370,21 +393,8 @@ class SelectConfiguration(sublime_plugin.WindowCommand):
     def run(self):
         folder = _get_folder(self.window)
         config_list = _get_config_list(self.window)
-        config_path = os.path.join(folder, PREDEFINE_FOLDER)
         if config_list is None or len(config_list) == 0:
-            if not sublime.ok_cancel_dialog(
-                "No compiler flags file found! Create one and try again.",
-                ok_title="Create For Me",
-                title="Define Parser",
-            ):
-                return
-            if not os.path.exists(config_path):
-                os.makedirs(config_path)
-            sublime.save_dialog(
-                callback=lambda f: _creat_new_compiler_flag_file(self.window, f),
-                directory=config_path,
-                name="CONFIG_A",
-            )
+            _alert_no_config(self.window)
             return
 
         items, selected_index = _get_config_selection_items(self.window)
