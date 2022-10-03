@@ -136,6 +136,9 @@ def _init_parser(window):
         except:
             pass
 
+    if active_folder in PARSER_IS_BUILDING:
+        return
+
     PARSER_IS_BUILDING.add(active_folder)
 
     p = C_DefineParser.Parser()
@@ -156,6 +159,7 @@ def _init_parser(window):
             _mark_inactive_code(window.active_view())
 
         sublime.status_message("building define database done.")
+        logger.info("done_parser: %s", active_folder)
         with open(_get_cache_file_for_folder(active_folder), "wb") as fs:
             pickle.dump(p, fs)
 
@@ -416,6 +420,9 @@ class SelectConfiguration(sublime_plugin.WindowCommand):
         config_list = _get_config_list(self.window)
         if config_list is None or len(config_list) == 0:
             return
+        if _get_folder(self.window) in PARSER_IS_BUILDING:
+            sublime.error_message("Previous parsing is in progress, please wait...")
+            return
 
         config_file = (
             config_list[selected_index] if selected_index < len(config_list) else ""
@@ -439,6 +446,9 @@ class ShowAllDefinesCommand(sublime_plugin.WindowCommand):
         folder = _get_folder(self.window)
         parser = _get_parser(self.window)
         if folder is None or parser is None:
+            return
+        if folder in PARSER_IS_BUILDING:
+            sublime.error_message("Parsing defines in progress, please wait...")
             return
         if len(parser.defs) == 0:
             sublime.error_message("No #define found in " + folder)
