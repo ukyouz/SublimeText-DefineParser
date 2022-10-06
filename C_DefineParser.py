@@ -213,11 +213,11 @@ class Parser:
 
             if try_if_else:
                 match_if = re.match(
-                    r"#if(?P<DEF>(?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line
+                    r"#\s*if(?P<DEF>(?P<NOT>n*)def)*\s*(?P<TOKEN>.+)", line
                 )
-                match_elif = re.match(r"#elif\s*(?P<TOKEN>.+)", line)
-                match_else = re.match(r"#else.*", line)
-                match_endif = re.match(r"#endif.*", line)
+                match_elif = re.match(r"#\s*elif\s*(?P<TOKEN>.+)", line)
+                match_else = re.match(r"#\s*else.*", line)
+                match_endif = re.match(r"#\s*endif.*", line)
                 if match_if:
                     if_depth += 1
                     token = match_if.group("TOKEN")
