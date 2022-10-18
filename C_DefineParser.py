@@ -9,9 +9,8 @@ from pprint import pformat
 DEFINE = namedtuple(
     "DEFINE",
     ("name", "params", "token", "line", "file", "lineno"),
-    defaults=("", [], "", "", "", 0),
 )
-TOKEN = namedtuple("TOKEN", ("name", "params", "line", "span"), defaults=("", "", "", (0, 0)))
+TOKEN = namedtuple("TOKEN", ("name", "params", "line", "span"))
 
 REGEX_TOKEN = re.compile(r"\b(?P<NAME>[a-zA-Z_][a-zA-Z0-9_]+)\b")
 REGEX_DEFINE = re.compile(
@@ -177,7 +176,7 @@ class Parser:
             # sizeof(U16) -> 2
             token = reg_sizeof_type.sub(str(data_sz), token)
             # (U16)x -> 0xFFFF & x
-            token = reg_special_type.sub(f"0x{'F' * data_sz * 2} & ", token)
+            token = reg_special_type.sub("0x%s & " % ("F" * data_sz * 2), token)
         # syntax translation from C -> Python
         token = token.replace("/", "//")
         token = token.replace("&&", " and ")
