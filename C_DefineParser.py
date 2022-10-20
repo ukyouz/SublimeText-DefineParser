@@ -6,11 +6,11 @@ import subprocess
 from collections import OrderedDict, defaultdict, namedtuple
 from pprint import pformat
 
-DEFINE = namedtuple(
-    "DEFINE",
+Define = namedtuple(
+    "Define",
     ("name", "params", "token", "line", "file", "lineno"),
 )
-TOKEN = namedtuple("TOKEN", ("name", "params", "line", "span"))
+Token = namedtuple("Token", ("name", "params", "line", "span"))
 
 REGEX_TOKEN = re.compile(r"\b(?P<NAME>[a-zA-Z_][a-zA-Z0-9_]+)\b")
 REGEX_DEFINE = re.compile(
@@ -107,7 +107,7 @@ class Parser:
         self.filelines = defaultdict(list)
 
     def reset(self):
-        self.defs = OrderedDict()  # dict of DEFINE
+        self.defs = OrderedDict()  # dict of Define
         self.zero_defs = set()
         self.temp_defs = defaultdict(set)  # temp definitions in filename
         self.folder = ""
@@ -116,7 +116,7 @@ class Parser:
         """params: list of parameters required, token: define body"""
         new_params = params or []
         new_token = token or ""
-        self.defs[name] = DEFINE(
+        self.defs[name] = Define(
             name=name,
             params=new_params,
             token=new_token,
@@ -330,7 +330,7 @@ class Parser:
         #define CCC(a)  // params = ['a']
         """
         self.filelines[filepath].append(lineno)
-        return DEFINE(
+        return Define(
             name=name,
             params=param_list if parentheses else None,
             token=token,
@@ -426,7 +426,7 @@ class Parser:
                     params = fine_token_params(token[end_pos:])
                 param_str = params if params else ""
                 ret_tokens.append(
-                    TOKEN(name=_token, params=params, line=_token + param_str, span=match.span())
+                    Token(name=_token, params=params, line=_token + param_str, span=match.span())
                 )
             return ret_tokens
         else:
@@ -552,7 +552,7 @@ class Parser:
                 elif define.name in self.zero_defs:
                     token_val = "0"
                 defines.append(
-                    DEFINE(
+                    Define(
                         name=define.name,
                         params=define.params,
                         token=token,
@@ -571,7 +571,7 @@ class Parser:
         token = define.token
         expanded_token = self.expand_token(token, try_if_else, raise_key_error=False)
 
-        return DEFINE(
+        return Define(
             name=macro_name,
             params=define.params,
             token=expanded_token,
