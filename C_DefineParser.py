@@ -204,6 +204,8 @@ class Parser:
         multi_lines = ""
         for line_no, line in enumerate(fileio.readlines(), 1):
 
+            line = REGEX_SYNTAX_LINE_COMMENT.sub("", self.strip_token(line, reserve_whitespace))
+
             if not is_block_comment:
                 if "/*" in line:  # start of block comment
                     block_comment_start = line.index("/*")
@@ -223,8 +225,6 @@ class Parser:
                     if include_block_comment:
                         yield (line, line_no)
                     continue
-
-            line = REGEX_SYNTAX_LINE_COMMENT.sub("", self.strip_token(line, reserve_whitespace))
 
             if try_if_else:
                 match_if = REG_STATEMENT_IF.match(line)
@@ -247,7 +247,18 @@ class Parser:
                         ):
                             if_token_val = 0  # header guard always uses #ifndef *
                         else:
-                            if_token_val = if_token in self.defs
+                            if if_token in self.defs:
+                                if not ignore_header_guard:
+                                    if_token_val = 1
+                                else:
+                                    defined_file = self.defs[if_token].file
+                                    defined_line = self.defs[if_token].lineno
+                                    if os.path.samefile(defined_file, fileio.name) and line_no < defined_line:
+                                        if_token_val = 0
+                                    else:
+                                        if_token_val = 1
+                            else:
+                                if_token_val = 0
                     else:
                         if_token = self.expand_token(
                             token,

@@ -188,6 +188,7 @@ def _mark_inactive_code(view):
         return
 
     fileio = io.StringIO(view.substr(sublime.Region(0, view.size())))
+    fileio.name = filename
     num_lines = len(fileio.readlines())
     inactive_lines = set(range(1, 1 + num_lines))
 
@@ -229,6 +230,7 @@ def _parse_temp_define(view):
     if p is None or filename is None or ext == ".h":
         return
     fileio = io.StringIO(view.substr(sublime.Region(0, view.size())))
+    fileio.name = filename
     for line, lineno in p.read_file_lines(
         fileio,
         ignore_header_guard=True,
