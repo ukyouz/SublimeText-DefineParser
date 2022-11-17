@@ -195,7 +195,7 @@ def _mark_inactive_code(view):
     fileio.seek(0)
     for _, lineno in p.read_file_lines(
         fileio,
-        reserve_whitespace=False,
+        reserve_whitespace=True,
         ignore_header_guard=True,
         include_block_comment=True,
     ):

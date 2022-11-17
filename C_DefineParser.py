@@ -295,7 +295,8 @@ class Parser:
             multi_lines += REGEX_SYNTAX_LINE_BREAK.sub("", line)
             if REGEX_SYNTAX_LINE_BREAK.search(line):
                 if reserve_whitespace:
-                    yield (line, line_no)
+                    if if_true_bmp == BIT(if_depth + 1) - 1:
+                        yield (line, line_no)
                 continue
             single_line = REGEX_SYNTAX_LINE_BREAK.sub("", multi_lines)
             if if_true_bmp == BIT(if_depth + 1) - 1:
