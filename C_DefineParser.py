@@ -67,10 +67,10 @@ def git_lsfiles(directory, ext=".h"):
 
 
 REG_LITERALS = [
-    re.compile(r"\b(?P<NUM>[0-9]+)([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
-    re.compile(r"\b(?P<NUM>0b[01]+)([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
-    re.compile(r"\b(?P<NUM>0[0-7]+)([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
-    re.compile(r"\b(?P<NUM>0x[0-9a-f]+)([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
+    re.compile(r"\b(?P<NUM>[0-9]+)(?:##)?([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
+    re.compile(r"\b(?P<NUM>0b[01]+)(?:##)?([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
+    re.compile(r"\b(?P<NUM>0[0-7]+)(?:##)?([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
+    re.compile(r"\b(?P<NUM>0x[0-9a-f]+)(?:##)?([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
 ]
 
 REG_SPECIAL_SIZEOFTYPES = [
