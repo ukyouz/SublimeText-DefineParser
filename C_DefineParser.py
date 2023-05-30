@@ -516,7 +516,7 @@ class Parser:
 
         if expanded_token in self.defs:
             expanded_token = self.expand_token(
-                self.defs[token].token, try_if_else, raise_key_error, zero_undefined
+                self.defs[expanded_token].token, try_if_else, raise_key_error, zero_undefined
             )
 
             # try to eval the value, to reduce the bracket count
