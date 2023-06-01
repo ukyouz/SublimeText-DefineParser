@@ -253,7 +253,7 @@ class Parser:
                                 else:
                                     defined_file = self.defs[if_token].file
                                     defined_line = self.defs[if_token].lineno
-                                    if os.path.samefile(defined_file, fileio.name) and line_no < defined_line:
+                                    if defined_file and os.path.samefile(defined_file, fileio.name) and line_no < defined_line:
                                         if_token_val = 0
                                     else:
                                         if_token_val = 1
