@@ -443,8 +443,11 @@ class Parser:
                 _token = match.group("NAME")
                 params = None
                 if _token in self.defs and self.defs[_token].params is not None:
-                    end_pos = match.end()
-                    params = self._find_token_params(token[end_pos:])
+                    params = self._find_token_params(token[match.end() :])
+                elif match.end() < len(token) and token[match.end()] == "(":
+                    # to suppress error message:
+                    # <string>:1: SyntaxWarning: 'int' object is not callable; perhaps you missed a comma?
+                    params = self._find_token_params(token[match.end() :])
                 param_str = params if params else ""
                 ret_tokens.append(
                     Token(
