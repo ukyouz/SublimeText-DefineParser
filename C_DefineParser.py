@@ -1,11 +1,9 @@
-import glob
 import logging
 import os
 import re
 import subprocess
 
 # import functools
-from argparse import ArgumentParser
 from collections import Counter, defaultdict, namedtuple
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,11 +16,13 @@ Define = namedtuple(
 )
 Token = namedtuple("Token", ("name", "params", "line", "span"))
 
+WORD_BOUNDARY = lambda word: r"\b(\s*##\s*)?%s\b" % re.escape(word)
+
 REGEX_TOKEN = re.compile(r"\b(?P<NAME>[a-zA-Z_][a-zA-Z0-9_]+)\b")
 REGEX_DEFINE = re.compile(
     r"#define\s+"
     + REGEX_TOKEN.pattern
-    + r"(?P<HAS_PAREN>\((?P<PARAMS>[\w, ]*)\))*\s*(?P<TOKEN>.+)*"
+    + r"(?P<HAS_PAREN>\((?P<PARAMS>[\w\., ]*)\))*\s*(?P<TOKEN>.+)*"
 )
 REGEX_UNDEF = re.compile(r"#undef\s+" + REGEX_TOKEN.pattern)
 REGEX_INCLUDE = re.compile(r'#include\s+["<](?P<PATH>.+)[">]\s*')
@@ -37,7 +37,7 @@ def glob_recursive(directory, ext=".c"):
     logger.debug("glob **/*%s --recursieve", ext)
     return [
         os.path.join(root, filename)
-        for root, dirnames, filenames in os.walk(directory)
+        for root, _, filenames in os.walk(directory)
         for filename in filenames
         if filename.endswith(ext)
     ]
@@ -71,10 +71,6 @@ def git_lsfiles(directory, ext=".h"):
     return [f for f in filelist if os.path.exists(f)]
 
 
-compile_flag_parser = ArgumentParser()
-compile_flag_parser.add_argument("-I", "--include", action="append", nargs=1, metavar="PATH", default=[])
-
-
 REG_LITERALS = [
     re.compile(r"\b(?P<NUM>[0-9]+)(?:##)?([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
     re.compile(r"\b(?P<NUM>0b[01]+)(?:##)?([ul]|ull?|ll?u|ll)\b", re.IGNORECASE),
@@ -104,6 +100,9 @@ REG_STATEMENT_ENDIF = re.compile(r"#\s*endif.*")
 REGEX_SYNTAX_LINE_COMMENT = re.compile(r"\s*\/\/.*$")
 REGEX_SYNTAX_INLINE_COMMENT = re.compile(r"\/\*[^\/]+\*\/")
 REGEX_SYNTAX_LINE_BREAK = re.compile(r"\\\s*$")
+
+REGEX_MACRO_HASH_OP = re.compile(r"\s*#\s*(?P<ARG>[^\s]+)")
+REGEX_MACRO_VA_ARGS = re.compile(r"(?:(,)\s*##\s*)?__VA_ARGS__")
 
 
 class DuplicatedIncludeError(Exception):
@@ -481,58 +480,83 @@ class Parser:
                 yield prams_str
                 arguments = []
 
-    # @functools.lru_cache
-    def expand_token(self, token: str, zero_undefined=False):
+    def _arguments_expansion(self, define: Define, t: Token, check=False) -> str:
+        old_params = define.params or []
+        new_params = list(self._iter_arg(t.params or ""))
+        variadic_pos = old_params.index("...") if "..." in old_params else -1
 
-        word_boundary = lambda word: r"\b(\s*##\s*)?%s\b" % re.escape(word)
+        if check and variadic_pos == -1 and len(old_params) != len(new_params):
+            raise SyntaxError(
+                "macro {!r} requires {} arguments, but {} given: {!r}".format(
+                    t.name, len(old_params), len(new_params), t.params
+                )
+            )
 
-        def _arguments_expansion(define: Define, t: Token, check=False) -> str:
-            old_params = define.params or []
-            new_params = list(self._iter_arg(t.params or ""))
-            if check and len(old_params) != len(new_params):
+        if variadic_pos >= 0:
+            if len(old_params) - 1 <= len(new_params):
+                old_params = old_params[:variadic_pos]
+            else:
                 raise SyntaxError(
-                    "macro {!r} requires {} arguments, but {} given: {!r}".format(
-                        t.name, len(old_params), len(new_params), t.params
+                    "macro {!r} requires at least {} arguments, but {} given: {!r}".format(
+                        t.name, len(old_params) - 1, len(new_params), t.params
                     )
                 )
 
-            new_token = define.token
-            old_param_regs = (re.compile(word_boundary(x)) for x in old_params)
-            for old_p_reg, new_p in zip(old_param_regs, new_params):
-                new_token = old_p_reg.sub(new_p, new_token)
-            new_token = re.sub(r"\s*##\s*", "", new_token)
+        new_token = define.token
+        old_param_regs = (re.compile(WORD_BOUNDARY(x)) for x in old_params)
+        for old_p_reg, new_p in zip(old_param_regs, new_params):
+            new_token = old_p_reg.sub(new_p, new_token)
 
-            if new_token_val := self.try_eval_num(new_token):
-                return str(new_token_val)
-            else:
-                return new_token
+        if variadic_pos >= 0 and len(new_params) >= variadic_pos:
+            if REGEX_MACRO_VA_ARGS.search(new_token):
+                """
+                #define LOG(msg, ...)  printf(msg, __VA_ARGS__)
+                #define LOG2(msg, ...)  printf(msg, ## __VA_ARGS__)
 
-        def _argument_replacement(t: Token, new_token: str, line: str):
-            # Replace original line with new parameterized-token
-            expanded_token = line
-            if t.line == t.name:
-                expanded_token = re.sub(word_boundary(t.line), new_token, expanded_token)
-            else:
-                expanded_token = expanded_token.replace(t.line, new_token)
+                LOG("xx")        ->  printf("xx", )
+                LOG("xx", 123)   ->  printf("xx", 123)
+                LOG2("xx")       ->  printf("xx")
+                LOG2("xx", 123)  ->  printf("xx", 123)
+                """
+                new_param_txt = ",".join(new_params[variadic_pos:])
 
-            return expanded_token
+                new_token = REGEX_MACRO_VA_ARGS.sub(
+                    (r"\g<1>" if new_param_txt else "") + new_param_txt,
+                    new_token,
+                )
 
-        def _stringify_token(line: str, old_params: list = None) -> str:
-            expanded_token = line
-            for mark_match in re.finditer(r"\s*#\s*(?P<ARG>[^\s]+)", line):
-                mark_line = mark_match.group(0)
-                arg = mark_match.group("ARG")
-                if old_params and arg not in old_params:
-                    raise SyntaxError(
-                        "'#' is not followed by a macro parameter, got: %r" % arg
-                    )
-                expanded_token = mark_match.re.sub('"%s"' % arg, expanded_token)
+        new_token = re.sub(r"\s*##\s*", "", new_token)
+        if new_token_val := self.try_eval_num(new_token):
+            return str(new_token_val)
+        else:
+            return new_token
 
-            return expanded_token
+    def _argument_replacement(self, t: Token, new_token: str, line: str):
+        # Replace original line with new parameterized-token
+        expanded_token = line
+        if t.line == t.name:
+            expanded_token = re.sub(WORD_BOUNDARY(t.line), new_token, expanded_token)
+        else:
+            expanded_token = expanded_token.replace(t.line, new_token)
 
-        token_seen = set()
+        return expanded_token
 
-        def _expand_token(_token):
+    def _stringify_token(self, line: str, old_params: list = None) -> str:
+        expanded_token = line
+        for mark_match in REGEX_MACRO_HASH_OP.finditer(line):
+            # ie: #define stringify(var)    #var
+            arg = mark_match.group("ARG")
+            if old_params and arg not in old_params:
+                raise SyntaxError("'#' is not followed by a macro parameter, got: %r" % arg)
+            expanded_token = mark_match.re.sub('"%s"' % arg, expanded_token)
+
+        return expanded_token
+
+    def expand_token(self, token: str, zero_undefined=False):
+
+        total_seen = set()
+
+        def _expand_token(_token: str, avoid_recursion_set: set):
             expanded_token = self.strip_token(_token)
             simple_tokens = [t for t in self.find_tokens(expanded_token) if not t.params]
             """
@@ -540,47 +564,54 @@ class Parser:
             __       __       _
             ALIGN_2N(XX_BASE, 4)
             """
-            for _token in simple_tokens:
-                if _token.name in token_seen:
-                    continue
+            token_seen = avoid_recursion_set.copy()
+            for _t in simple_tokens:
+                total_seen.add(_t.name)
 
-                if _token.name in self.defs:
-                    define = self.defs[_token.name]
-                    params = self.strip_token(_token.params or "")
-                    if not params and not define.params:
-                        new_token = _arguments_expansion(define, _token, False)
-                        token_seen.add(_token.name)
-                        # to avoid recursion
-                        new_token = _expand_token(new_token)
-                        token_seen.remove(_token.name)
+                if _t.name not in token_seen and _t.name in self.defs:
+                    define = self.defs[_t.name]
+                    if not define.params:
+                        # TODO: shall check `if define.params is not None`
+                        # but hang in unittest, don't know why
+                        new_token = self._arguments_expansion(define, _t, False)
+                        token_seen.add(_t.name)
+                        new_token = _expand_token(new_token, token_seen)
+                        token_seen.remove(_t.name)
 
-                        expanded_token = _argument_replacement(
-                            _token, new_token, expanded_token
+                        expanded_token = self._argument_replacement(
+                            _t, new_token, expanded_token
                         )
-                elif _token.name in self.zero_defs:
-                    expanded_token = re.sub(word_boundary(_token.name), "0", expanded_token)
-                elif _token.line == _token.name and zero_undefined:
-                    self.zero_defs.add(_token.name)
-                    expanded_token = re.sub(word_boundary(_token.name), "0", expanded_token)
+                elif _t.name in self.zero_defs:
+                    expanded_token = re.sub(WORD_BOUNDARY(_t.name), "0", expanded_token)
+                elif _t.line == _t.name and zero_undefined:
+                    self.zero_defs.add(_t.name)
+                    expanded_token = re.sub(WORD_BOUNDARY(_t.name), "0", expanded_token)
 
             parameterized_tokens = [t for t in self.find_tokens(expanded_token) if t.params]
-            for _token in parameterized_tokens:
-                if _token.name not in self.defs:
+            for _t in parameterized_tokens:
+                total_seen.add(_t.name)
+                if _t.name not in self.defs:
                     continue
-                if _token.name in token_seen:
+                if _t.name in token_seen:
                     continue
-                token_seen.add(_token.name)
-                define = self.defs[_token.name]
+
+                define = self.defs[_t.name]
                 if "#" in define.token:
-                    new_token = _arguments_expansion(define, _token, False)
-                    new_token = _stringify_token(new_token)
-                    expanded_token = _argument_replacement(_token, new_token, expanded_token)
+                    new_token = self._arguments_expansion(define, _t, False)
+                    new_token = self._stringify_token(new_token)
+                    expanded_token = self._argument_replacement(_t, new_token, expanded_token)
                 else:
-                    new_token = _arguments_expansion(define, _token, True)
-                    token_seen.add(_token.name)
-                    new_token = _expand_token(new_token)
-                    token_seen.remove(_token.name)
-                    expanded_token = _argument_replacement(_token, new_token, expanded_token)
+                    new_token = self._arguments_expansion(define, _t, True)
+                    token_seen.add(_t.name)
+                    new_token = _expand_token(new_token, token_seen)
+                    token_seen.remove(_t.name)
+                    expanded_token = self._argument_replacement(_t, new_token, expanded_token)
+
+            if _token != expanded_token:
+                new_tokens = set(t.name for t in self.find_tokens(expanded_token))
+                new_tokens ^= total_seen
+                if len(new_tokens):
+                    expanded_token = _expand_token(expanded_token, token_seen)
 
             token_val = self.try_eval_num(expanded_token)
             if token_val is not None:
@@ -588,7 +619,7 @@ class Parser:
 
             return expanded_token
 
-        return _expand_token(token)
+        return _expand_token(token, total_seen)
 
     def get_expand_defines(
         self, filepath, try_if_else=True, ignore_header_guard=True
@@ -624,7 +655,7 @@ class Parser:
                 )
         return defines
 
-    def get_expand_define(self, macro_name, try_if_else=True):
+    def get_expand_define(self, macro_name):
         if macro_name not in self.defs:
             return None
 
