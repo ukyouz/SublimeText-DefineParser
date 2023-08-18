@@ -20,12 +20,12 @@ WORD_BOUNDARY = lambda word: r"\b(\s*##\s*)?%s\b" % re.escape(word)
 
 REGEX_TOKEN = re.compile(r"\b(?P<NAME>[a-zA-Z_][a-zA-Z0-9_]+)\b")
 REGEX_DEFINE = re.compile(
-    r"#define\s+"
+    r"#\s*define\s+"
     + REGEX_TOKEN.pattern
     + r"(?P<HAS_PAREN>\((?P<PARAMS>[\w\., ]*)\))*\s*(?P<TOKEN>.+)*"
 )
-REGEX_UNDEF = re.compile(r"#undef\s+" + REGEX_TOKEN.pattern)
-REGEX_INCLUDE = re.compile(r'#include\s+["<](?P<PATH>.+)[">]\s*')
+REGEX_UNDEF = re.compile(r"#\s*undef\s+" + REGEX_TOKEN.pattern)
+REGEX_INCLUDE = re.compile(r'#\s*include\s+["<](?P<PATH>.+)[">]\s*')
 REGEX_STRING = re.compile(r'"[^"]+"')
 REGEX_OPERATOR_NOT = re.compile("!(?!=)")
 BIT = lambda n: 1 << n
