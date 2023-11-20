@@ -98,7 +98,7 @@ REG_STATEMENT_ELSE = re.compile(r"#\s*else.*")
 REG_STATEMENT_ENDIF = re.compile(r"#\s*endif.*")
 
 REGEX_SYNTAX_LINE_COMMENT = re.compile(r"\s*\/\/.*$")
-REGEX_SYNTAX_INLINE_COMMENT = re.compile(r"\/\*[^\/]+\*\/")
+REGEX_SYNTAX_INLINE_COMMENT = re.compile(r"\/\*.*\*\/")
 REGEX_SYNTAX_LINE_BREAK = re.compile(r"\\\s*$")
 
 REGEX_MACRO_HASH_OP = re.compile(r"\s*#\s*(?P<ARG>[^\s]+)")
@@ -161,7 +161,7 @@ class Parser:
             raise KeyError("token '{}' is not defined!".format(name))
 
     def strip_token(self, token, reserve_whitespace=False) -> str:
-        assert isinstance(token, str)
+        assert isinstance(token, str), "`token` type shall belong to str"
         if reserve_whitespace:
             token = token.rstrip()
         else:
@@ -210,6 +210,8 @@ class Parser:
         is_block_comment = False
         # with open(filepath, "r", errors="replace") as fs:
         multi_lines = ""
+
+        captured_ifs = []
         for line_no, line in enumerate(fileio.readlines(), 1):
 
             line = REGEX_SYNTAX_LINE_COMMENT.sub(
@@ -236,12 +238,21 @@ class Parser:
                         yield (line, line_no)
                     continue
 
+            multi_lines += REGEX_SYNTAX_LINE_BREAK.sub("", line)
+            if REGEX_SYNTAX_LINE_BREAK.search(line):
+                if reserve_whitespace:
+                    if if_true_bmp == BIT(if_depth + 1) - 1:
+                        yield (line, line_no)
+                continue
+            single_line = REGEX_SYNTAX_LINE_BREAK.sub("", multi_lines)
+
             if try_if_else:
-                match_if = REG_STATEMENT_IF.match(line)
-                match_elif = REG_STATEMENT_ELIF.match(line)
-                match_else = REG_STATEMENT_ELSE.match(line)
-                match_endif = REG_STATEMENT_ENDIF.match(line)
+                match_if = REG_STATEMENT_IF.match(single_line)
+                match_elif = REG_STATEMENT_ELIF.match(single_line)
+                match_else = REG_STATEMENT_ELSE.match(single_line)
+                match_endif = REG_STATEMENT_ENDIF.match(single_line)
                 if match_if:
+                    captured_ifs.append((line_no, single_line))
                     if_depth += 1
                     token = match_if.group("TOKEN")
                     if match_if.group("DEF") is not None:
@@ -281,6 +292,7 @@ class Parser:
                         False if match_if.group("NOT") == "n" else first_guard_token
                     )
                 elif match_elif:
+                    captured_ifs.append((line_no, single_line))
                     if_token = self.expand_token(
                         match_elif.group("TOKEN"),
                         zero_undefined=True,
@@ -289,21 +301,22 @@ class Parser:
                     if_true_bmp |= BIT(if_depth) * if_token_val
                     if_true_bmp &= ~(BIT(if_depth) & if_done_bmp)
                 elif match_else:
+                    captured_ifs.append((line_no, single_line))
                     if_true_bmp ^= BIT(if_depth)  # toggle state
                     if_true_bmp &= ~(BIT(if_depth) & if_done_bmp)
                 elif match_endif:
+                    captured_ifs.append((line_no, single_line))
                     if_true_bmp &= ~BIT(if_depth)
                     if_done_bmp &= ~BIT(if_depth)
-                    assert if_depth > 0
+                    if len(captured_ifs) > 1:
+                        assert if_depth > 0, "{}#{} #endif with less #if directive.".format(fileio.name, line_no)
+                    else:
+                        # some source files may tend to leave an extra #endif at the end
+                        # I think it is for unintentionally include, so just warn and let it go.
+                        logger.warning("Extra #endif found in {}#{}".format(fileio.name, line_no))
+                        break
                     if_depth -= 1
 
-            multi_lines += REGEX_SYNTAX_LINE_BREAK.sub("", line)
-            if REGEX_SYNTAX_LINE_BREAK.search(line):
-                if reserve_whitespace:
-                    if if_true_bmp == BIT(if_depth + 1) - 1:
-                        yield (line, line_no)
-                continue
-            single_line = REGEX_SYNTAX_LINE_BREAK.sub("", multi_lines)
             if if_true_bmp == BIT(if_depth + 1) - 1:
                 yield (single_line, line_no)
                 if_done_bmp |= BIT(if_depth)
@@ -470,7 +483,7 @@ class Parser:
     def _iter_arg(self, params):
         if len(params) == 0:
             return []
-        assert params[0] == "(" and params[-1] == ")"
+        assert params[0] == "(" and params[-1] == ")", "`params` shall be like '(...)'"
         parma_list = params[1:-1].split(",")
         arguments = []
         for arg in parma_list:
