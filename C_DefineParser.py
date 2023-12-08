@@ -6,9 +6,7 @@ import subprocess
 # import functools
 from collections import Counter, defaultdict, namedtuple
 from contextlib import contextmanager
-from pathlib import Path
 from pprint import pformat
-from typing import List, NamedTuple
 
 Define = namedtuple(
     "Define",
@@ -109,9 +107,7 @@ class DuplicatedIncludeError(Exception):
     """assert when parser can not found ONE valid include header file."""
 
 
-class IncludeHeader(NamedTuple):
-    inc_path: str
-    src_file: Path
+IncludeHeader = namedtuple("IncludeHeader", ["inc_path", "src_file"])
 
 
 class Parser:
@@ -407,11 +403,10 @@ class Parser:
                         if match_include is not None:
                             # parse included file first
                             path = match_include.group("PATH")
-                            if included_file := self._search_included_file(
-                                path, src_file=filepath
-                            ):
-                                self.include_trees[Path(filepath).resolve()].append(
-                                    IncludeHeader(path, Path(included_file).resolve())
+                            included_file = self._search_included_file(path, src_file=filepath)
+                            if included_file is not None:
+                                self.include_trees[os.path.realpath(filepath)].append(
+                                    IncludeHeader(path, os.path.realpath(included_file))
                                 )
                                 read_header(included_file)
                         define = self._get_define(line, filepath, lineno)
@@ -443,7 +438,7 @@ class Parser:
                 break
         return new_params
 
-    def find_tokens(self, token) -> list[Token]:
+    def find_tokens(self, token) -> list:
 
         # remove string value in token
         token = REGEX_STRING.sub("", token)
@@ -539,7 +534,8 @@ class Parser:
                 )
 
         new_token = re.sub(r"\s*##\s*", "", new_token)
-        if new_token_val := self.try_eval_num(new_token):
+        new_token_val = self.try_eval_num(new_token)
+        if new_token_val is not None:
             return str(new_token_val)
         else:
             return new_token
@@ -636,7 +632,7 @@ class Parser:
 
     def get_expand_defines(
         self, filepath, try_if_else=True, ignore_header_guard=True
-    ) -> List[Define]:
+    ) -> list:
         defines = []
 
         with open(filepath, "r", errors="replace") as fs:
