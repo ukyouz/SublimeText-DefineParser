@@ -425,6 +425,63 @@ class Parser:
 
         return True
 
+    @contextmanager
+    def read_h(self, filepath, try_if_else=False):
+        try:
+            yield
+        except Exception as e:
+            print(e)
+
+    @contextmanager
+    def read_c(self, filepath, try_if_else=False):
+        """use `with` context manager for having temporary tokens defined in .c source file"""
+        temp_defs = {}  # use dict to uniqify define name
+        temp_overwrite = {}
+        try:
+            add_includes = os.path.realpath(filepath) not in self.include_trees
+            with open(filepath, "r", errors="replace") as fs:
+                for line, line_no in self.read_file_lines(fs, try_if_else):
+                    if add_includes:
+                        match_include = REGEX_INCLUDE.match(line)
+                        if match_include is not None:
+                            path = match_include.group("PATH")
+                            included_file = self._search_included_file(
+                                path, src_file=filepath
+                            )
+                            if included_file:
+                                self.include_trees[os.path.realpath(filepath)].append(
+                                    IncludeHeader(path, os.path.realpath(included_file))
+                                )
+                            continue
+                    define = self._get_define(line, filepath, line_no)
+                    if define == None:
+                        continue
+                    # if len(define.params):
+                    #     return
+                    if define.name in self.defs:
+                        temp_overwrite[define.name] = self.defs[define.name]
+                    temp_defs[define.name] = define
+
+            for define in temp_defs.values():
+                self.insert_define(
+                    name=define.name,
+                    params=define.params,
+                    token=define.token,
+                    filename=define.file,
+                    lineno=define.lineno,
+                )
+
+            yield
+
+        except UnicodeDecodeError as e:
+            logger.warning("Fail to open :{}. {}".format(filepath, e))
+        finally:
+            for define in temp_defs.values():
+                del self.defs[define.name]
+            # restore temp overwrite
+            for name, define in temp_overwrite.items():
+                self.defs[name] = define
+
     def _find_token_params(self, params) -> str:
         if len(params) and params[0] != "(":
             return ""

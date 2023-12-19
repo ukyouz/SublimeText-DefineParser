@@ -4,8 +4,11 @@
     // default enable highlight inactive code region
     "highlight_inactive_enable": true,
 
-    // specify the extension list for inactive code region highlighting
-    "highlight_inactive_extensions": [".h", ".c", ".cpp"],
+    // specify the header extensions list for inactive code region highlighting
+    "highlight_inactive_header_exts": [".h"],
+
+    // specify the source extensions list for inactive code region highlighting
+    "highlight_inactive_source_exts": [".c", ".cpp"],
 
     // project root file or folder
     "define_parser_root_markers": [".root", ".git", ".gitlab"],

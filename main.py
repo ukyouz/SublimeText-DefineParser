@@ -42,7 +42,8 @@ REGION_INACTIVE_NAME = "inactive_source_code"
 PREDEFINE_FOLDER = ".define_parser_compiler_files"
 
 DP_SETTING_HL_INACTIVE = "highlight_inactive_enable"
-DP_SETTING_SUPPORT_EXT = "highlight_inactive_extensions"
+DP_SETTING_SUPPORT_HEADER_EXTS = "highlight_inactive_header_exts"
+DP_SETTING_SUPPORT_SOURCE_EXTS = "highlight_inactive_source_exts"
 DP_SETTING_ROOT_MARKERS = "define_parser_root_markers"
 DP_SETTING_LOG_DEBUG = "define_parser_debug_log_enable"
 DP_SETTING_COMPILE_FILE = "compile_flag_file"
@@ -184,8 +185,15 @@ def _mark_inactive_code(view):
         return
 
     _, ext = os.path.splitext(filename)
-    if ext not in _get_setting(window, DP_SETTING_SUPPORT_EXT):
+    is_hdr = ext in _get_setting(window, DP_SETTING_SUPPORT_HEADER_EXTS)
+    is_src = ext in _get_setting(window, DP_SETTING_SUPPORT_SOURCE_EXTS)
+    if not is_hdr and not is_src:
+        logger.debug("highlight_inactive_header_exts: %r", _get_setting(window, DP_SETTING_SUPPORT_HEADER_EXTS))
+        logger.debug("highlight_inactive_source_exts: %r", _get_setting(window, DP_SETTING_SUPPORT_SOURCE_EXTS))
+        logger.debug("filetype not support: %r", ext)
         return
+
+    ctx_mgr = p.read_c if is_src else p.read_h
 
     fileio = io.StringIO(view.substr(sublime.Region(0, view.size())))
     fileio.name = filename
@@ -193,13 +201,14 @@ def _mark_inactive_code(view):
     inactive_lines = set(range(1, 1 + num_lines))
 
     fileio.seek(0)
-    for _, lineno in p.read_file_lines(
-        fileio,
-        reserve_whitespace=True,
-        ignore_header_guard=True,
-        include_block_comment=True,
-    ):
-        inactive_lines.remove(lineno)
+    with ctx_mgr(filename, try_if_else=True):
+        for _, lineno in p.read_file_lines(
+            fileio,
+            reserve_whitespace=True,
+            ignore_header_guard=True,
+            include_block_comment=True,
+        ):
+            inactive_lines.remove(lineno)
     inactive_lines -= set(p.filelines.get(filename, []))
     logger.debug("inactive lines count: %d", len(inactive_lines))
 
@@ -495,42 +504,48 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
                 region = sublime.Region(region.begin(), region.end() + 1)
         symbol = view.substr(region)
 
-        define = parser.get_expand_define(symbol)
-        if define is not None:
-            logger.debug("%r", define)
-            value = parser.try_eval_num(define.token)
-            if value is not None:
-                text = "{} ({})".format(value, hex(value))
-            else:
-                text = html.escape(convertall_dec2fmt(define.token))
+        filename = view.file_name()
+        _, ext = os.path.splitext(filename)
+        is_src = filename and ext in _get_setting(window, DP_SETTING_SUPPORT_SOURCE_EXTS)
+        ctx_mgr = parser.read_c if is_src else parser.read_h
 
-            logger.info("%s = %s", define.name, text)
-            view.show_popup(
-                "<em>Expansion of</em> <small>{}{}</small><br>{}".format(
-                    define.name,
-                    "(%s)" % (", ".join(define.params))
-                    if define.params is not None
-                    else "",
-                    text,
-                ),
-                max_width=800,
-            )
-        else:
-            expanded_token = parser.expand_token(symbol)
-            logger.debug("%r", expanded_token)
-            value = parser.try_eval_num(expanded_token)
-            if value is not None:
-                text = "{} ({})".format(value, hex(value))
+        with ctx_mgr(filename, try_if_else=True):
+            define = parser.get_expand_define(symbol)
+            if define is not None:
+                logger.debug("%r", define)
+                value = parser.try_eval_num(define.token)
+                if value is not None:
+                    text = "{} ({})".format(value, hex(value))
+                else:
+                    text = html.escape(convertall_dec2fmt(define.token))
+
+                logger.info("%s = %s", define.name, text)
+                view.show_popup(
+                    "<em>Expansion of</em> <small>{}{}</small><br>{}".format(
+                        define.name,
+                        "(%s)" % (", ".join(define.params))
+                        if define.params is not None
+                        else "",
+                        text,
+                    ),
+                    max_width=800,
+                )
             else:
-                text = convertall_dec2fmt(expanded_token, "0x{:02x}")
-            logger.info("%s = %s", symbol, text)
-            view.show_popup(
-                "<em>Expansion of</em> <small>{}</small><br>{}".format(
-                    html.escape(symbol),
-                    html.escape(text),
-                ),
-                max_width=800,
-            )
+                expanded_token = parser.expand_token(symbol)
+                logger.debug("%r", expanded_token)
+                value = parser.try_eval_num(expanded_token)
+                if value is not None:
+                    text = "{} ({})".format(value, hex(value))
+                else:
+                    text = convertall_dec2fmt(expanded_token, "0x{:02x}")
+                logger.info("%s = %s", symbol, text)
+                view.show_popup(
+                    "<em>Expansion of</em> <small>{}</small><br>{}".format(
+                        html.escape(symbol),
+                        html.escape(text),
+                    ),
+                    max_width=800,
+                )
 
 
 class ToggleDefineParserDebugLog(sublime_plugin.WindowCommand):

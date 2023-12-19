@@ -68,9 +68,13 @@ The inactive code highlighting by default only shown for files with following ex
 
 ```json
 {
-    "highlight_inactive_extensions": [".h", ".c", ".cpp"],
+    //"highlight_inactive_extensions": [".h", ".c", ".cpp"], // deprecated!
+    "highlight_inactive_header_exts": [".h"],
+    "highlight_inactive_source_exts": [".c", ".cpp"],
 }
 ```
+
+Notice that these settings are case-sensitive. The local definitions in source files will be well considered for parsing to calculate an accurate and correct result.
 
 If mismatch happened or the define data is corrupted, try run the `Define Parser: Rebuild #define Data` command to rebuild parsing data.
 
@@ -91,5 +95,5 @@ For example, we specify the `-DENV=ENV_TEST` in our config file:
 ## Limitations/ Known Issues
 
 - Currently only support one folder open in one Sublime Text Window.
-- The DEFINITION appears before `#define DEFINITION` will also be seen as a defined value, context order is not well-handled.
+- ~~The DEFINITION appears before `#define DEFINITION` will also be seen as a defined value, context order is not well-handled~~.
 - Build define data may be slow (few seconds) for large project, required further optimizations for parsing speed.
