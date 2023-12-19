@@ -368,7 +368,7 @@ class Parser:
         if len(included_files) == 0:
             return None
 
-        relativities = [(len(os.path.commonpath([f, src_file])), f) for f in included_files]
+        relativities = [(len(os.path.commonprefix([f, src_file])), f) for f in included_files]
         relativities.sort(key=lambda x: x[0], reverse=True)
         counter = Counter([x[0] for x in relativities])
         if counter[relativities[0][0]] > 1:
