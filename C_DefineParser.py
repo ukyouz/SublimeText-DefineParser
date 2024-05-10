@@ -90,10 +90,10 @@ REG_SPECIAL_TYPES = [
     re.compile(r"\(\s*U64\s*\)"),
 ]
 
-REG_STATEMENT_IF = re.compile(r"#\s*if(?P<DEF>(?P<NOT>n*)def)*\s*(?P<TOKEN>.+)")
-REG_STATEMENT_ELIF = re.compile(r"#\s*elif\s*(?P<TOKEN>.+)")
-REG_STATEMENT_ELSE = re.compile(r"#\s*else.*")
-REG_STATEMENT_ENDIF = re.compile(r"#\s*endif.*")
+REG_STATEMENT_IF = re.compile(r"\s*#\s*if(?P<DEF>(?P<NOT>n*)def)*\s*(?P<TOKEN>.+)")
+REG_STATEMENT_ELIF = re.compile(r"\s*#\s*elif\s*(?P<TOKEN>.+)")
+REG_STATEMENT_ELSE = re.compile(r"\s*#\s*else.*")
+REG_STATEMENT_ENDIF = re.compile(r"\s*#\s*endif.*")
 
 REGEX_SYNTAX_LINE_COMMENT = re.compile(r"\s*\/\/.*$")
 REGEX_SYNTAX_INLINE_COMMENT = re.compile(r"\/\*.*\*\/")
