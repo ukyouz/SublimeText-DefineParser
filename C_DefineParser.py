@@ -498,12 +498,15 @@ class Parser:
     def find_tokens(self, token) -> list:
 
         # remove string value in token
-        token = REGEX_STRING.sub("", token)
+        string_spans = [m.span() for m in REGEX_STRING.finditer(token)]
 
         tokens = list(REGEX_TOKEN.finditer(token))
         if len(tokens):
             ret_tokens = []
             for match in tokens:
+                if any(s[0] < match.start() and match.end() < s[1] for s in string_spans):
+                    # skip tokens in string
+                    continue
                 _token = match.group("NAME")
                 params = None
                 if _token in self.defs and self.defs[_token].params is not None:
