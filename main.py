@@ -206,7 +206,6 @@ def _mark_inactive_code(view):
             fileio,
             reserve_whitespace=True,
             ignore_header_guard=True,
-            include_block_comment=True,
         ):
             inactive_lines.remove(lineno)
     inactive_lines -= set(p.filelines.get(filename, []))
@@ -244,7 +243,7 @@ def _parse_temp_define(view):
         fileio,
         ignore_header_guard=True,
     ):
-        define = p._get_define(line)
+        define = p._do_define_directive(line)
         if define is None:
             continue
         p.insert_temp_define(
@@ -471,7 +470,7 @@ class ShowAllDefinesCommand(sublime_plugin.WindowCommand):
         def insert_defs():
             for define in parser.defs.values():
                 token = define.token
-                token_value = parser.try_eval_num(token)
+                token_value = parser.cdef.try_eval_num(token)
                 if token_value is not None:
                     line = "#define %-30s (0x%x)" % (define.name, token_value)
                 else:
@@ -513,7 +512,7 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
             define = parser.get_expand_define(symbol)
             if define is not None:
                 logger.debug("%r", define)
-                value = parser.try_eval_num(define.token)
+                value = parser.cdef.try_eval_num(define.token)
                 if value is not None:
                     text = "{} ({})".format(value, hex(value))
                 else:
@@ -533,7 +532,7 @@ class CalculateDefineValue(sublime_plugin.TextCommand):
             else:
                 expanded_token = parser.expand_token(symbol)
                 logger.debug("%r", expanded_token)
-                value = parser.try_eval_num(expanded_token)
+                value = parser.cdef.try_eval_num(expanded_token)
                 if value is not None:
                     text = "{} ({})".format(value, hex(value))
                 else:
