@@ -84,7 +84,7 @@ def convert_op_c2py(txt: str) -> str:
     txt = txt.replace("/", "//")
     txt = txt.replace("&&", " and ")
     txt = txt.replace("||", " or ")
-    txt = REGEX_OPERATOR_NOT.sub(" not \1", txt)
+    txt = REGEX_OPERATOR_NOT.sub(r" not \1", txt)
     for char in REGEX_CHAR.finditer(txt):
         txt = txt.replace(char.group(), str(ord(char[1])))
     return txt
