@@ -707,3 +707,10 @@ class Parser:
             ):
                 lines.append(line)
         return lines
+
+    @contextmanager
+    def pickable(self):
+        cdef_backup = self.cdef
+        self.cdef = CDefineEnv()
+        yield self
+        self.cdef = cdef_backup

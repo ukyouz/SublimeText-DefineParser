@@ -5,6 +5,8 @@ import os
 import pickle
 import re
 
+from pathlib import Path
+
 import sublime
 import sublime_plugin
 
@@ -161,8 +163,12 @@ def _init_parser(window):
 
         sublime.status_message("building define database done.")
         logger.info("done_parser: %s", active_folder)
-        with open(_get_cache_file_for_folder(active_folder), "wb") as fs:
-            pickle.dump(p, fs)
+        with p.pickable() as pp:
+            obj = pickle.dumps(pp)
+        cache_file = _get_cache_file_for_folder(active_folder)
+        with open(cache_file, "wb") as fs:
+            fs.write(obj)
+        logger.debug("cache file saved as {!r}".format(cache_file))
 
     sublime.status_message("building define database, please wait...")
     sublime.set_timeout_async(async_proc, 0)
