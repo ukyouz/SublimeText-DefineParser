@@ -142,7 +142,7 @@ class CDefineEnv:
             return int(eval(token, self._globals))
         except:
             return None
-    
+
     def stringify_token(self, line: str, old_params: list = None) -> str:
         expanded_token = line
         for mark_match in REGEX_MACRO_HASH_OP.finditer(line):
@@ -328,6 +328,7 @@ class Parser:
             match_elif = REG_STATEMENT_ELIF.match(single_line)
             match_else = REG_STATEMENT_ELSE.match(single_line)
             match_endif = REG_STATEMENT_ENDIF.match(single_line)
+            top_visible_level = all(bool(active) for active in captured_ifs)
             if match_if:
                 if_token_val = self.expand_token(match_if.group("TOKEN"))
                 captured_ifs.append(CodeActiveState(self.cdef.try_eval_num(if_token_val)))
@@ -342,11 +343,14 @@ class Parser:
                 if ignore_header_guard and captured_ifs == []:
                     captured_ifs.append(CodeActiveState(True))
                 else:
-                    check_name = match_ifndef.group("TOKEN").rstrip()
-                    if check_name in self.defs:
-                        has_def = has_defined(self.defs[check_name], fileio.name, line_no)
-                    else:
+                    if fileio.name.endswith(".h") and captured_ifs == []:
                         has_def = False
+                    else:
+                        check_name = match_ifndef.group("TOKEN").rstrip()
+                        if check_name in self.defs:
+                            has_def = has_defined(self.defs[check_name], fileio.name, line_no)
+                        else:
+                            has_def = False
                     captured_ifs.append(CodeActiveState(not has_def))
             elif match_elif:
                 if_token_val = self.expand_token(match_elif.group("TOKEN"))
@@ -361,10 +365,7 @@ class Parser:
                     # I think it is for unintentionally include, so just warn and let it go.
                     logger.warning("Extra #endif found in {}#{}".format(fileio.name, line_no))
                     return False
-            if match_if or match_elif or match_else or match_endif:
-                # let directives be active
-                return True
-            return all(bool(active) for active in captured_ifs)
+            return top_visible_level or all(bool(active) for active in captured_ifs)
 
         merged_line = ""
         clean_code = remove_comment(fileio.readlines())
@@ -379,7 +380,7 @@ class Parser:
 
             if not try_if_else or is_active(merged_line):
                 yield (merged_line, line_no)
-    
+
             merged_line = ""
 
     def _do_define_directive(self, line, filepath="", lineno=0):
