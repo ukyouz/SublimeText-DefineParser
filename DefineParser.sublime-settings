@@ -10,6 +10,9 @@
     // specify the source extensions list for inactive code region highlighting
     "highlight_inactive_source_exts": [".c", ".cpp"],
 
+    // add --recurse-submodules for 'git ls-files' command
+    "define_parser_resurse_modules": false,
+
     // project root file or folder
     "define_parser_root_markers": [".root", ".git", ".gitlab"],
 

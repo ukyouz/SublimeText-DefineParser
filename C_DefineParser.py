@@ -2,7 +2,7 @@ import logging
 import os
 import re
 import subprocess
-from argparse import ArgumentParser
+from pathlib import Path
 
 # import functools
 from collections import Counter, defaultdict, namedtuple
@@ -33,14 +33,13 @@ REGEX_STRING = re.compile(r'"[^"]+"')
 logger = logging.getLogger("Define Parser")
 
 
-def glob_recursive(directory, ext=".c"):
-    logger.debug("glob **/*%s --recursieve", ext)
-    return [
-        os.path.join(root, filename)
-        for root, _, filenames in os.walk(directory)
-        for filename in filenames
-        if filename.endswith(ext)
-    ]
+def glob_recursive(directory, exts=None):
+    exts = exts or [".h", ".H"]
+    logger.debug("glob **/*.{%s} --recursieve", exts)
+    files = set()
+    for ext in exts:
+        files |= set(Path(directory).rglob("*.%s" % ext))
+    return list(files)
 
 
 def is_git(folder):
@@ -49,8 +48,11 @@ def is_git(folder):
     return len(markers & files)
 
 
-def git_lsfiles(directory, ext=".h"):
+def git_lsfiles(directory, exts=None, recurse_submodule=False):
+    exts = exts or [".h"]
     git_cmds = ["git", "--git-dir", os.path.join(directory, ".git"), "ls-files"]
+    if recurse_submodule:
+        git_cmds.append("--recurse-submodules")
     logger.debug(" ".join(git_cmds))
     try:
         filelist_output = subprocess.check_output(
@@ -59,16 +61,16 @@ def git_lsfiles(directory, ext=".h"):
         )
     except subprocess.CalledProcessError:
         # fallback to normal glob if git command fail
-        return glob_recursive(directory, ext)
+        return glob_recursive(directory, exts)
     except FileNotFoundError:
         # fallback to normal glob if git command fail
-        return glob_recursive(directory, ext)
+        return glob_recursive(directory, exts)
 
+    folder = Path(directory)
     filelist = filelist_output.decode().split("\n")
-    filelist = [
-        os.path.join(directory, filename) for filename in filelist if filename.endswith(ext)
-    ]
-    return [f for f in filelist if os.path.exists(f)]
+    filelist = [folder / filename for filename in filelist]
+    return [f for f in filelist if f.suffix in exts]
+
 
 
 REG_STATEMENT_IF = re.compile(r"\s*#\s*if(\s+|\b)(?P<TOKEN>.+)")
@@ -120,6 +122,8 @@ class CDefineEnv:
         except NameError:
             pass
         except SyntaxError:
+            pass
+        except TypeError:
             pass
 
     def add_define(self, define: Define):
@@ -271,6 +275,7 @@ class Parser:
         self.include_trees = defaultdict(list)  # dict[filename: str, include_files: list[str]]
         self.header_files = []
         self.temp_defs = defaultdict(set)
+        self.recurse_submodule = False
 
     def insert_define(self, name, *, params=None, token=None, filename="", lineno=0):
         """params: list of parameters required, token: define body"""
@@ -418,11 +423,12 @@ class Parser:
             lineno=lineno,
         )
 
-    def read_folder_h(self, directory, try_if_else=True, exts="h,H"):
+    def read_folder_h(self, directory, try_if_else=True, exts=None):
+        exts = exts or [".h"]
         self.folder = directory
 
         if is_git(directory):
-            header_files = git_lsfiles(directory, exts)
+            header_files = git_lsfiles(directory, exts, self.recurse_submodule)
         else:
             header_files = glob_recursive(directory, exts)
         self.header_files = [os.path.normpath(f) for f in header_files]

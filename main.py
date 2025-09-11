@@ -46,6 +46,7 @@ PREDEFINE_FOLDER = ".define_parser_compiler_files"
 DP_SETTING_HL_INACTIVE = "highlight_inactive_enable"
 DP_SETTING_SUPPORT_HEADER_EXTS = "highlight_inactive_header_exts"
 DP_SETTING_SUPPORT_SOURCE_EXTS = "highlight_inactive_source_exts"
+DP_SETTING_RESURSE_MODULES = "define_parser_resurse_modules"
 DP_SETTING_ROOT_MARKERS = "define_parser_root_markers"
 DP_SETTING_LOG_DEBUG = "define_parser_debug_log_enable"
 DP_SETTING_COMPILE_FILE = "compile_flag_file"
@@ -83,15 +84,17 @@ def plugin_unloaded():
     logger.removeHandler(handler)
 
 
-def _get_setting(obj_has_settings, key, default=None):
+def _get_setting(window, key, default=None):
     defaults = _get_default_settings()
-    if obj_has_settings is None:
-        return defaults.get(key, default)
-    return obj_has_settings.settings().get(key, defaults.get(key, default))
+    plug_default = defaults.get(key, default)
+    if window is None:
+        return plug_default
+    view = window.active_view()
+    return window.settings().get(key, view.settings().get(key, plug_default))
 
 
-def _set_setting(obj_has_settings, key, value):
-    obj_has_settings.settings().set(key, value)
+def _set_setting(window, key, value):
+    window.settings().set(key, value)
 
 
 def _is_root(folder, marker_list):
@@ -145,6 +148,7 @@ def _init_parser(window):
     PARSER_IS_BUILDING.add(active_folder)
 
     p = C_DefineParser.Parser()
+    p.recurse_submodule = _get_setting(window, DP_SETTING_RESURSE_MODULES, False)
     PARSERS[active_folder] = p
 
     predefines = _get_configs_from_file(
