@@ -524,7 +524,8 @@ class Parser:
             print("Fail to open :{}. {}".format(filepath, e))
         finally:
             for define in temp_defs:
-                del self.defs[define.name]
+                if define.name in self.defs:
+                    del self.defs[define.name]
                 self.cdef.del_name(define.name)
             # restore temp hidden
             for define in temp_hidden:
