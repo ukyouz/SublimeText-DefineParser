@@ -528,10 +528,10 @@ class Parser:
         if compile_flag_txt == "":
             return
 
-        arguments = [x.strip() for x in compile_flag_txt.split(" ") if x]
+        compile_flags = " ".join(compile_flag_txt.splitlines()).split(" ")
 
         predefines = []
-        for arg in arguments:
+        for arg in compile_flags:
             if not arg.startswith("-D"):
                 continue
 

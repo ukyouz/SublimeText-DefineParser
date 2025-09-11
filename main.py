@@ -150,9 +150,14 @@ def _init_parser(window):
     predefines = _get_configs_from_file(
         window, _get_setting(window, DP_SETTING_COMPILE_FILE)
     )
-    for d in predefines:
-        logger.debug("  predefine: %s", d)
-        p.insert_define(d[0], token=d[1])
+    if predefines:
+        for d in predefines:
+            logger.debug("  predefine: %s", d)
+            p.insert_define(d[0], token=d[1])
+    else:
+        compile_flag_txt = Path(active_folder) / "compile_flags.txt"
+        if compile_flag_txt.exists():
+            p.load_compile_flags(compile_flag_txt.read_text())
 
     def async_proc():
         p.read_folder_h(active_folder)
