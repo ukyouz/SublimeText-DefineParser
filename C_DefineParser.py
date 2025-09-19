@@ -38,7 +38,7 @@ def glob_recursive(directory, exts=None):
     logger.debug("glob **/*.{%s} --recursieve", exts)
     files = set()
     for ext in exts:
-        files |= set(Path(directory).rglob("*.%s" % ext))
+        files |= set(Path(directory).rglob("*%s" % ext))
     return list(files)
 
 
@@ -650,9 +650,9 @@ class Parser:
                 if len(new_tokens):
                     expanded_token = _expand_token(expanded_token, token_seen)
 
-            # token_val = self.cdef.try_eval_num(expanded_token)
-            # if token_val is not None:
-            #     return str(token_val)
+            token_val = self.cdef.try_eval_num(expanded_token)
+            if token_val is not None:
+                return str(token_val)
 
             return expanded_token
 
